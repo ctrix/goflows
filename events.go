@@ -25,11 +25,12 @@ type EventInterface interface {
 	GetReferrer() *string
 }
 
+// BaseInit assigns a fresh ID and timestamp. It deliberately leaves Type at
+// EventTypeInvalid: an event whose type was never set must be rejected by
+// Publish, not silently routed to whatever type happens to be registered as 1.
 func (e *Event) BaseInit() {
 	e.ID = uuid.Must(uuid.NewUUID()).String()
 	e.TS = time.Now().Unix()
-	e.Type = 1
-	return
 }
 
 func (e *Event) GetID() string {
