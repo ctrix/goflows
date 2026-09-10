@@ -101,7 +101,11 @@ type subscriptionMap map[subscriptionKey][]*EventSubscriptionObject
 type CQRS struct {
 	logger *slog.Logger
 
-	handler    EventHandlerInterface
+	handler EventHandlerInterface
+
+	// regMu serialises RegisterEvent writers. Readers use eventTypes directly;
+	// the slices stored in it are never mutated once published.
+	regMu      sync.Mutex
 	eventTypes sync.Map // this is a map[EventType][]EventBus
 
 	state atomic.Int32 // engineState
@@ -301,24 +305,19 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...*Option) e
 		// TODO OPTS TO HANDLE (if we really want to do it or need it)
 	}
 
+	c.regMu.Lock()
+	defer c.regMu.Unlock()
+
 	var sl []EventBus
-	var ret error = nil
-	if asl, ok := c.eventTypes.Load(etype); !ok {
-		sl = []EventBus{btype}
-	} else {
+	if asl, ok := c.eventTypes.Load(etype); ok {
 		sl = asl.([]EventBus)
-		if !inSlice(btype, sl) {
-			sl = append(sl, btype)
-		} else {
-			ret = EEventRegistrationExists
+		if inSlice(btype, sl) {
+			return EEventRegistrationExists
 		}
 	}
 
-	if ret != nil {
-		return ret
-	}
-
-	c.eventTypes.Store(etype, sl)
+	// Never append in place: Publish may be iterating the published slice.
+	c.eventTypes.Store(etype, append(slices.Clone(sl), btype))
 	c.logger.Debug("registering event type", "name", name, "type", etype, "bus", btype)
 
 	return nil
