@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"os"
 	"reflect"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -78,20 +80,21 @@ const (
 	engineStopped
 )
 
+// subscriptionMap is an immutable snapshot of every subscription. Writers
+// build a new map and swap the pointer; readers load the pointer and look up
+// without any lock, so the hot path never touches shared writable memory.
+type subscriptionMap map[subscriptionKey][]*EventSubscriptionObject
+
 type CQRS struct {
 	logger *slog.Logger
 
 	handler    EventHandlerInterface
 	eventTypes sync.Map // this is a map[EventType][]EventBus
 
-	stateMu sync.RWMutex
-	state   engineState
+	state atomic.Int32 // engineState
 
-	// subMu guards subscriptions. The slices stored as values are treated as
-	// immutable once published: readers copy the slice header under RLock and
-	// iterate without the lock, writers replace the slice under Lock.
-	subMu         sync.RWMutex
-	subscriptions map[subscriptionKey][]*EventSubscriptionObject
+	subMu         sync.Mutex // serialises writers only
+	subscriptions atomic.Pointer[subscriptionMap]
 
 	subDispatchers sync.Map // this is a map[btype]*BusDispatcher
 }
@@ -102,9 +105,9 @@ func NewCQRSEngine(eventh EventHandlerInterface) (*CQRS, error) {
 	}
 
 	c := &CQRS{
-		handler:       eventh,
-		subscriptions: make(map[subscriptionKey][]*EventSubscriptionObject),
+		handler: eventh,
 	}
+	c.subscriptions.Store(&subscriptionMap{})
 
 	c.SetLogger(nil)
 
@@ -129,10 +132,7 @@ func (c *CQRS) SetLogger(l *slog.Logger) error {
 
 // checkNotStopped returns EEngineStopped once Stop has been called.
 func (c *CQRS) checkNotStopped() error {
-	c.stateMu.RLock()
-	defer c.stateMu.RUnlock()
-
-	if c.state == engineStopped {
+	if engineState(c.state.Load()) == engineStopped {
 		return EEngineStopped
 	}
 
@@ -272,17 +272,15 @@ func (c *CQRS) Start() error {
 		return EEventHandlerNull
 	}
 
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-
-	switch c.state {
-	case engineStarted:
-		return EEngineStarted
-	case engineStopped:
-		return EEngineStopped
+	if !c.state.CompareAndSwap(int32(engineCreated), int32(engineStarted)) {
+		switch engineState(c.state.Load()) {
+		case engineStopped:
+			return EEngineStopped
+		default:
+			return EEngineStarted
+		}
 	}
 
-	c.state = engineStarted
 	c.logger.Debug("starting CQRS engine")
 
 	return nil
@@ -292,13 +290,9 @@ func (c *CQRS) Start() error {
 // the events already published. It can be called in any state and is
 // idempotent: the second and later calls return nil without doing anything.
 func (c *CQRS) Stop() error {
-	c.stateMu.Lock()
-	if c.state == engineStopped {
-		c.stateMu.Unlock()
+	if engineState(c.state.Swap(int32(engineStopped))) == engineStopped {
 		return nil
 	}
-	c.state = engineStopped
-	c.stateMu.Unlock()
 
 	c.handler.Stop()
 
@@ -315,25 +309,18 @@ func (c *CQRS) Stop() error {
 
 // This function is used only in tests
 func (c *CQRS) countSubscriptions() int64 {
-	c.subMu.RLock()
-	defer c.subMu.RUnlock()
-
 	var n int64
-	for _, subs := range c.subscriptions {
+	for _, subs := range *c.subscriptions.Load() {
 		n += int64(len(subs))
 	}
 
 	return n
 }
 
-// subscribersFor returns the current subscriber list for (btype, etype). The
-// returned slice is never mutated afterwards, so it is safe to iterate over
-// without holding the lock.
+// subscribersFor returns the current subscriber list for (btype, etype). Both
+// the map and the slice are immutable snapshots, so no lock is needed.
 func (c *CQRS) subscribersFor(btype EventBus, etype EventType) []*EventSubscriptionObject {
-	c.subMu.RLock()
-	defer c.subMu.RUnlock()
-
-	return c.subscriptions[subscriptionKey{btype: btype, etype: etype}]
+	return (*c.subscriptions.Load())[subscriptionKey{btype: btype, etype: etype}]
 }
 
 // sameSubscription reports whether two subscription requests refer to the same
@@ -391,7 +378,8 @@ func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCa
 
 	c.logger.Debug("subscribing", "bus-type", btype, "sub-type", etype)
 
-	m := c.subscriptions[key]
+	cur := *c.subscriptions.Load()
+	m := cur[key]
 	for _, s := range m {
 		if sameSubscription(s, sub) {
 			// Subscription exists, do nothing
@@ -399,9 +387,10 @@ func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCa
 		}
 	}
 
-	// Slices stored in the map are immutable once published: dispatchers may
-	// be iterating over them, so always build a fresh one.
-	c.subscriptions[key] = append(slices.Clone(m), sub)
+	// Never mutate the published snapshot: dispatchers may be reading it.
+	next := maps.Clone(cur)
+	next[key] = append(slices.Clone(m), sub)
+	c.subscriptions.Store(&next)
 
 	return nil
 }
@@ -436,15 +425,17 @@ func (c *CQRS) Unsubscribe(btype EventBus, etype EventType, cb EventSubscription
 
 	c.logger.Debug("unsubscribing", "bus-type", btype, "unsub-type", etype)
 
-	m := c.subscriptions[key]
+	cur := *c.subscriptions.Load()
+	m := cur[key]
 	for i, s := range m {
 		if sameSubscription(s, unsub) {
-			newm := slices.Delete(slices.Clone(m), i, i+1)
-			if len(newm) == 0 {
-				delete(c.subscriptions, key)
+			next := maps.Clone(cur)
+			if newm := slices.Delete(slices.Clone(m), i, i+1); len(newm) == 0 {
+				delete(next, key)
 			} else {
-				c.subscriptions[key] = newm
+				next[key] = newm
 			}
+			c.subscriptions.Store(&next)
 			return nil
 		}
 	}
