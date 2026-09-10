@@ -1,8 +1,6 @@
 package goflows
 
 import (
-	"context"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,7 +58,4 @@ type EventSubscriptionObject struct {
 	etype  EventType
 	cb     EventSubscriptionCallback
 	cbdata any
-	cond   *sync.Cond
-	ctx    context.Context
-	cancel context.CancelFunc
 }

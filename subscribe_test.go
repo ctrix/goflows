@@ -32,9 +32,17 @@ func newScopeEvent(t EventType) *scopeEvent {
 	return e
 }
 
-// newScopedEngine builds an engine with two buses. scopeEvOrder is registered
-// on both buses, scopeEvOnlyHigh only on scopeBusHigh.
+// newScopedEngine builds and starts an engine with two buses. scopeEvOrder is
+// registered on both buses, scopeEvOnlyHigh only on scopeBusHigh.
 func newScopedEngine(t *testing.T) *CQRS {
+	t.Helper()
+	cq := buildScopedEngine(t)
+	require.NoError(t, cq.Start())
+	return cq
+}
+
+// buildScopedEngine is newScopedEngine without the Start call.
+func buildScopedEngine(t *testing.T) *CQRS {
 	t.Helper()
 	require := require.New(t)
 
@@ -51,7 +59,6 @@ func newScopedEngine(t *testing.T) *CQRS {
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOrder))
 	require.NoError(cq.RegisterEvent(scopeBusLow, scopeEvOrder))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOnlyHigh))
-	require.NoError(cq.Start())
 
 	return cq
 }
