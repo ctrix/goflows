@@ -91,6 +91,22 @@ func main() {
 | `InMemoryEventHandler` | Built-in channel-based transport, suitable for single-process use. |
 | `Option` | Key/value option passed to `RegisterBus` / `RegisterEvent` (e.g. `name`, `partitions`). |
 
+## Delivery semantics
+
+- One dispatcher per bus, with `partitions` worker goroutines
+  (`goflows.NewOption("partitions", n)` on `RegisterBus`, default 1).
+- One partition: events are delivered in publish order, subscribers run one
+  after the other. A slow subscriber delays later events on that bus.
+- N partitions: up to N events in flight, no ordering across events. Each
+  event still reaches its subscribers sequentially.
+- A subscriber that panics is logged and skipped. The bus keeps running.
+- The in-memory transport is a bounded queue. `Publish` blocks while the bus
+  is full, so a subscriber publishing synchronously on its own bus can
+  deadlock under load: use a different bus for replies, or publish
+  asynchronously.
+- `Stop` releases blocked publishers with an error and drains what is already
+  queued before returning.
+
 ## Development
 
 ```sh

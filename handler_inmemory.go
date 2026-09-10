@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 const (
@@ -12,18 +13,40 @@ const (
 	MAX_INMEMORY_QUEUE_ELEMENTS = 111
 )
 
+// inMemoryBus is a bounded queue of events. The channel is never closed:
+// publishers select on it together with done, so a Publish racing with Stop
+// returns EEventBusClosed instead of panicking on a closed channel.
 type inMemoryBus struct {
-	btype EventBus
-	wgIn  sync.WaitGroup
-	in    chan EventInterface
-	out   chan EventInterface
+	btype  EventBus
+	ch     chan EventInterface
+	done   chan struct{}
+	closed atomic.Bool
 }
 
 func NewInMemoryBus(btype EventBus) *inMemoryBus {
 	return &inMemoryBus{
 		btype: btype,
-		in:    make(chan EventInterface, MAX_INMEMORY_QUEUE_ELEMENTS),
-		out:   make(chan EventInterface, MAX_INMEMORY_QUEUE_ELEMENTS),
+		ch:    make(chan EventInterface, MAX_INMEMORY_QUEUE_ELEMENTS),
+		done:  make(chan struct{}),
+	}
+}
+
+func (b *inMemoryBus) publish(ev EventInterface) error {
+	if b.closed.Load() {
+		return EEventBusClosed
+	}
+
+	select {
+	case b.ch <- ev:
+		return nil
+	case <-b.done:
+		return EEventBusClosed
+	}
+}
+
+func (b *inMemoryBus) close() {
+	if b.closed.CompareAndSwap(false, true) {
+		close(b.done)
 	}
 }
 
@@ -62,36 +85,18 @@ func (eh *InMemoryEventHandler) RegisterBus(btype EventBus, opts ...*Option) err
 
 	for _, opt := range opts {
 		switch opt.Name {
-		// case "name":
-		// 	if val, ok := opt.Value.(string); ok {
-		// 		bus.name = eh.sanitizeInMemoryBusName(val)
-		// 	}
+		case "name", "partitions":
+			// Handled by the engine, nothing to do here.
 		default:
-			eh.logger.Error("cannot handle unknown option while registering event bus", "type", btype, "optname", opt.Name)
+			eh.logger.Debug("ignoring unknown option while registering event bus", "type", btype, "optname", opt.Name)
 		}
 	}
 
 	eh.logger.Debug("registering event bus", "type", btype)
 
-	if _, ok := eh.inputs.Load(btype); ok {
+	if _, loaded := eh.inputs.LoadOrStore(btype, bus); loaded {
 		return EEventBusExists
 	}
-
-	eh.inputs.Store(btype, bus)
-
-	bus.wgIn.Add(1)
-	go func() {
-		defer bus.wgIn.Done()
-		for {
-			select {
-			case ev, ok := <-bus.in:
-				if !ok {
-					return
-				}
-				bus.out <- ev
-			}
-		}
-	}()
 
 	return nil
 }
@@ -101,6 +106,8 @@ func (eh *InMemoryEventHandler) BusExists(btype EventBus) bool {
 	return ok
 }
 
+// Range returns the channel events for btype are delivered on. The channel is
+// never closed; the engine stops reading from it after Stop.
 func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan EventInterface, bool) {
 	abus, ok := eh.inputs.Load(btype)
 	if !ok {
@@ -108,7 +115,7 @@ func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan EventInterface, bo
 	}
 
 	bus := abus.(*inMemoryBus)
-	return bus.out, ok
+	return bus.ch, ok
 }
 
 func (eh *InMemoryEventHandler) Publish(btype EventBus, ev EventInterface) error {
@@ -117,21 +124,16 @@ func (eh *InMemoryEventHandler) Publish(btype EventBus, ev EventInterface) error
 		return EEventBusDoesntExists
 	}
 
-	bus := abus.(*inMemoryBus)
-	bus.in <- ev
-	// eh.logger.Debug("published event handler", "id", ev.GetID(), "type", ev.GetType())
-
-	return nil
+	return abus.(*inMemoryBus).publish(ev)
 }
 
+// Stop marks every bus closed and releases publishers blocked on a full
+// queue. Events already queued stay in the channel for the engine to drain.
 func (eh *InMemoryEventHandler) Stop() {
 	eh.logger.Debug("stopping event handler")
 
 	eh.inputs.Range(func(k, v interface{}) bool {
-		bus := v.(*inMemoryBus)
-		close(bus.in)
-		bus.wgIn.Wait()
-		close(bus.out)
+		v.(*inMemoryBus).close()
 		return true
 	})
 }

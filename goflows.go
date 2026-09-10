@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -32,11 +33,13 @@ var (
 	EEventBusExists                = errors.New("event bus already exists")
 	EEventBusDoesntExists          = errors.New("event bus does not exists")
 	EEventBusInvalid               = errors.New("event bus is invalid")
+	EEventBusClosed                = errors.New("event bus is closed")
 	EEventNotRegisteredOnBus       = errors.New("event type is not registered on this bus")
 	EEventHandlerNull              = errors.New("event handler is null")
 	EEventHandlerRedefined         = errors.New("event handler is already set and cannot be redefined")
 	EEventHandlerInvalid           = errors.New("event handler is invalid")
 	EEventBusNotFound              = errors.New("corresponding event bus not found")
+	EOptionInvalid                 = errors.New("option value is invalid")
 	EEngineStarted                 = errors.New("engine already started")
 	EEngineStopped                 = errors.New("engine is stopped")
 	ESubscriptionInvalid           = errors.New("subscription request is invalid")
@@ -51,11 +54,20 @@ type subscriptionKey struct {
 	etype EventType
 }
 
+// BusDispatcher consumes one bus and delivers each event to its subscribers.
+// It runs `partitions` worker goroutines over the same channel: with one
+// partition delivery is sequential and in publish order; with more, up to
+// that many events are delivered concurrently and order across events is not
+// guaranteed. A single event is always delivered to its subscribers one after
+// the other, in subscription order.
 type BusDispatcher struct {
-	btype EventBus
-	ch    <-chan EventInterface
-	wg    sync.WaitGroup
+	btype      EventBus
+	ch         <-chan EventInterface
+	partitions int
+	wg         sync.WaitGroup
 }
+
+const defaultPartitions = 1
 
 type Option struct {
 	Name  string
@@ -97,6 +109,10 @@ type CQRS struct {
 	subscriptions atomic.Pointer[subscriptionMap]
 
 	subDispatchers sync.Map // this is a map[btype]*BusDispatcher
+
+	// stopCh is closed by Stop once the transport has been stopped. Dispatchers
+	// then drain what is still buffered and exit.
+	stopCh chan struct{}
 }
 
 func NewCQRSEngine(eventh EventHandlerInterface) (*CQRS, error) {
@@ -106,6 +122,7 @@ func NewCQRSEngine(eventh EventHandlerInterface) (*CQRS, error) {
 
 	c := &CQRS{
 		handler: eventh,
+		stopCh:  make(chan struct{}),
 	}
 	c.subscriptions.Store(&subscriptionMap{})
 
@@ -139,51 +156,80 @@ func (c *CQRS) checkNotStopped() error {
 	return nil
 }
 
-func (c *CQRS) busDispatcherRun(btype EventBus) error {
+func (c *CQRS) busDispatcherRun(btype EventBus, partitions int) error {
 	ch, ok := c.handler.Range(btype)
 	if !ok {
-		return nil // TODO We should return a specific error, even if this is unlikely to happen
+		return EEventBusDoesntExists
 	}
 
 	dis := &BusDispatcher{
-		btype: btype,
-		ch:    ch,
+		btype:      btype,
+		ch:         ch,
+		partitions: partitions,
 	}
 
-	// Register the dispatcher before starting its goroutine, so that a Stop()
+	// Register the dispatcher before starting its goroutines, so that a Stop()
 	// racing with RegisterBus() always finds it and waits for it.
 	c.subDispatchers.Store(dis.btype, dis)
 
-	dis.wg.Add(1)
-	go func(d *BusDispatcher) {
-		warned := false
-		defer d.wg.Done()
+	dis.wg.Add(partitions)
+	for i := 0; i < partitions; i++ {
+		go c.dispatchLoop(dis)
+	}
 
-		for {
-			select {
-			case ev, ok := <-d.ch:
-				if ok {
-					subs := c.subscribersFor(d.btype, ev.GetType())
-					if len(subs) == 0 {
-						// There are no subscriptions.
-						if !warned {
-							// warned = true
-							c.logger.Warn("no subscriptions found for event on bus", "bus-type", d.btype, "event-type", ev.GetType())
-						}
-					} else {
-						for _, sub := range subs {
-							sub.cb(ev, sub.cbdata)
-						}
+	return nil
+}
+
+// dispatchLoop is one partition of a bus dispatcher. It exits when the
+// transport closes the channel or, after Stop, once the channel is drained.
+func (c *CQRS) dispatchLoop(d *BusDispatcher) {
+	defer d.wg.Done()
+
+	for {
+		select {
+		case ev, ok := <-d.ch:
+			if !ok {
+				return
+			}
+			c.deliver(d.btype, ev)
+		case <-c.stopCh:
+			for {
+				select {
+				case ev, ok := <-d.ch:
+					if !ok {
+						return
 					}
-				} else {
-					// Channel was closed, the bus is no more active
+					c.deliver(d.btype, ev)
+				default:
 					return
 				}
 			}
 		}
-	}(dis)
+	}
+}
 
-	return nil
+// deliver hands ev to every subscriber of (btype, type of ev). A panicking
+// subscriber is logged and skipped; it never affects the others or the bus.
+func (c *CQRS) deliver(btype EventBus, ev EventInterface) {
+	subs := c.subscribersFor(btype, ev.GetType())
+	if len(subs) == 0 {
+		c.logger.Debug("no subscriptions found for event on bus", "bus-type", btype, "event-type", ev.GetType(), "event-id", ev.GetID())
+		return
+	}
+
+	for _, sub := range subs {
+		c.safeCall(sub, ev)
+	}
+}
+
+func (c *CQRS) safeCall(sub *EventSubscriptionObject, ev EventInterface) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Error("subscriber panicked", "bus-type", sub.btype, "event-type", ev.GetType(), "event-id", ev.GetID(), "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
+	sub.cb(ev, sub.cbdata)
 }
 
 func (c *CQRS) RegisterBus(btype EventBus, opts ...*Option) error {
@@ -199,13 +245,23 @@ func (c *CQRS) RegisterBus(btype EventBus, opts ...*Option) error {
 		return EEventHandlerNull
 	}
 
-	err := c.handler.RegisterBus(btype, opts...)
-	if err == nil {
-		// Start the bus subscription handler
-		c.busDispatcherRun(btype)
+	partitions := defaultPartitions
+	for _, opt := range opts {
+		if opt.Name != "partitions" {
+			continue
+		}
+		n, ok := opt.Value.(int)
+		if !ok || n < 1 {
+			return EOptionInvalid
+		}
+		partitions = n
 	}
 
-	return err
+	if err := c.handler.RegisterBus(btype, opts...); err != nil {
+		return err
+	}
+
+	return c.busDispatcherRun(btype, partitions)
 }
 
 func (c *CQRS) sanitizeEventName(n string) string {
@@ -294,7 +350,10 @@ func (c *CQRS) Stop() error {
 		return nil
 	}
 
+	// Stop the transport first: publishers still in flight are released with
+	// an error. Then tell the dispatchers to drain and exit.
 	c.handler.Stop()
+	close(c.stopCh)
 
 	c.subDispatchers.Range(func(k, v interface{}) bool {
 		d := v.(*BusDispatcher)
