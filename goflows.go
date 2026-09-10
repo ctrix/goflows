@@ -479,41 +479,43 @@ func (c *CQRS) Publish(ev EventInterface) error {
 	return nil
 }
 
+// PublishAndWait publishes ev and waits for a reply of type retet on bus btype
+// whose Referrer is the ID of ev. The first matching reply is returned and any
+// later one is dropped. On timeout the error is context.DeadlineExceeded. The
+// temporary reply subscription is always removed before returning.
 func (c *CQRS) PublishAndWait(btype EventBus, ev EventInterface, retet EventType, timeout time.Duration) (EventInterface, error) {
-	var retev EventInterface
-
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
+	// Buffered by one so the dispatcher never blocks on us; the non-blocking
+	// send makes the first reply win and discards the rest without touching
+	// any shared variable.
+	reply := make(chan EventInterface, 1)
 	waitid := ev.GetID()
-	cbf := func(cur EventInterface, cbdata any) {
+	cbf := func(cur EventInterface, _ any) {
 		if ref := cur.GetReferrer(); ref != nil && *ref == waitid {
-			retev = cur
-			cancel()
+			select {
+			case reply <- cur:
+			default:
+			}
 		}
 	}
 
-	err := c.Subscribe(btype, retet, cbf, &retev)
-	if err != nil {
+	// Subscribe before publishing so a fast reply cannot be missed.
+	if err := c.Subscribe(btype, retet, cbf, nil); err != nil {
 		return nil, err
 	}
+	defer c.Unsubscribe(btype, retet, cbf, nil)
 
-	err = c.Publish(ev)
-	if err != nil {
+	if err := c.Publish(ev); err != nil {
 		return nil, err
 	}
 
 	select {
+	case res := <-reply:
+		return res, nil
 	case <-ctx.Done():
-		switch ctx.Err() {
-		case context.DeadlineExceeded:
-			c.logger.Debug("context timeout exceeded")
-			return nil, context.DeadlineExceeded
-		case context.Canceled:
-			c.logger.Debug("context cancelled. whole process is complete")
-		}
+		c.logger.Debug("request timed out", "event-id", waitid, "reply-type", retet, "bus-type", btype)
+		return nil, ctx.Err()
 	}
-
-	defer c.Unsubscribe(btype, retet, cbf, &retev)
-
-	return retev, nil
 }
