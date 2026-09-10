@@ -30,6 +30,7 @@ var (
 	EEventBusExists                = errors.New("event bus already exists")
 	EEventBusDoesntExists          = errors.New("event bus does not exists")
 	EEventBusInvalid               = errors.New("event bus is invalid")
+	EEventNotRegisteredOnBus       = errors.New("event type is not registered on this bus")
 	EEventHandlerNull              = errors.New("event handler is null")
 	EEventHandlerRedefined         = errors.New("event handler is already set and cannot be redefined")
 	EEventHandlerInvalid           = errors.New("event handler is invalid")
@@ -37,6 +38,14 @@ var (
 	ESubscriptionInvalid           = errors.New("subscription request is invalid")
 	EUnsubscriptionInvalid         = errors.New("unsubscription request is invalid")
 )
+
+// subscriptionKey identifies the set of subscribers listening for a given
+// event type on a given bus. Subscriptions are scoped to the bus: a subscriber
+// on bus A never sees copies of the same event delivered on bus B.
+type subscriptionKey struct {
+	btype EventBus
+	etype EventType
+}
 
 type BusDispatcher struct {
 	btype EventBus
@@ -68,7 +77,7 @@ type CQRS struct {
 	unsubChan      chan *EventSubscriptionObject
 	subCtx         context.Context
 	subCancel      context.CancelFunc
-	subscriptions  sync.Map // this is a map[btype][]*EventSubscriptionObject
+	subscriptions  sync.Map // this is a map[subscriptionKey][]*EventSubscriptionObject
 	subDispatchers sync.Map // this is a map[btype]*BusDispatcher
 }
 
@@ -116,30 +125,30 @@ func (c *CQRS) busDispatcherRun(btype EventBus) error {
 		ch:    ch,
 	}
 
+	// Register the dispatcher before starting its goroutine, so that a Stop()
+	// racing with RegisterBus() always finds it and waits for it.
+	c.subDispatchers.Store(dis.btype, dis)
+
 	dis.wg.Add(1)
 	go func(d *BusDispatcher) {
 		warned := false
-		c.subDispatchers.Store(d.btype, dis)
 		defer d.wg.Done()
 
 		for {
 			select {
 			case ev, ok := <-d.ch:
 				if ok {
-					many, ok := c.subscriptions.Load(ev.GetType())
+					many, ok := c.subscriptions.Load(subscriptionKey{btype: d.btype, etype: ev.GetType()})
 					if !ok {
 						// There are no subscriptions.
 						if !warned {
 							// warned = true
-							c.logger.Warn("no subscriptions found for bus", "bus-type", btype)
+							c.logger.Warn("no subscriptions found for event on bus", "bus-type", d.btype, "event-type", ev.GetType())
 						}
 					} else {
 						subs := many.([]*EventSubscriptionObject)
 						for _, sub := range subs {
-							// c.logger.Debug("bridged event handler", "id", ev.GetID(), "type", ev.GetType(), "subcount", len(subs), "referrer", ev.GetReferrer(), "subType", sub.etype)
-							if sub.etype == ev.GetType() {
-								sub.cb(ev, sub.cbdata)
-							}
+							sub.cb(ev, sub.cbdata)
 						}
 					}
 				} else {
@@ -259,6 +268,25 @@ func (c *CQRS) countSubscriptions() int64 {
 	return atomic.LoadInt64(&c.subcount)
 }
 
+// checkEventOnBus verifies that btype is a registered bus and that etype has
+// been registered on that specific bus.
+func (c *CQRS) checkEventOnBus(btype EventBus, etype EventType) error {
+	if btype == EventBusInvalid || !c.handler.BusExists(btype) {
+		return EEventBusDoesntExists
+	}
+
+	buses, ok := c.eventTypes.Load(etype)
+	if !ok {
+		return EEventTypeDoesntExists
+	}
+
+	if !inSlice(btype, buses.([]EventBus)) {
+		return EEventNotRegisteredOnBus
+	}
+
+	return nil
+}
+
 func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback, cbdata any) error {
 	if etype == EventTypeInvalid {
 		return EEventTypeInvalid
@@ -268,8 +296,8 @@ func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCa
 		return ESubscriptionInvalid
 	}
 
-	if _, ok := c.eventTypes.Load(etype); !ok {
-		return EEventTypeDoesntExists
+	if err := c.checkEventOnBus(btype, etype); err != nil {
+		return err
 	}
 
 	sub := &EventSubscriptionObject{
@@ -300,6 +328,10 @@ func (c *CQRS) Unsubscribe(btype EventBus, etype EventType, cb EventSubscription
 
 	if cb == nil {
 		return EUnsubscriptionInvalid
+	}
+
+	if err := c.checkEventOnBus(btype, etype); err != nil {
+		return err
 	}
 
 	unsub := &EventSubscriptionObject{
@@ -335,10 +367,11 @@ func (c *CQRS) subscriptionsHandler() {
 					sub.cond.L.Unlock()
 				}()
 
-				c.logger.Info("Subscribing", "sub-type", sub.etype)
+				c.logger.Info("Subscribing", "bus-type", sub.btype, "sub-type", sub.etype)
 
+				key := subscriptionKey{btype: sub.btype, etype: sub.etype}
 				first := []*EventSubscriptionObject{sub}
-				many, loaded := c.subscriptions.LoadOrStore(sub.etype, first)
+				many, loaded := c.subscriptions.LoadOrStore(key, first)
 				if !loaded {
 					atomic.AddInt64(&c.subcount, 1)
 				} else {
@@ -356,7 +389,7 @@ func (c *CQRS) subscriptionsHandler() {
 					// Subscription does not exists, add it
 					if !found {
 						newm := append(m, sub)
-						c.subscriptions.Store(sub.etype, newm)
+						c.subscriptions.Store(key, newm)
 						atomic.AddInt64(&c.subcount, 1)
 					}
 				}
@@ -368,9 +401,10 @@ func (c *CQRS) subscriptionsHandler() {
 					unsub.cond.Signal()
 					unsub.cond.L.Unlock()
 				}()
-				c.logger.Info("Unsubscribing", "unsub-type", unsub.etype)
+				c.logger.Info("Unsubscribing", "bus-type", unsub.btype, "unsub-type", unsub.etype)
 
-				many, loaded := c.subscriptions.Load(unsub.etype)
+				key := subscriptionKey{btype: unsub.btype, etype: unsub.etype}
+				many, loaded := c.subscriptions.Load(key)
 				if !loaded {
 					// Subscription does not exists, cannot unsubscribe
 				} else {
@@ -381,7 +415,7 @@ func (c *CQRS) subscriptionsHandler() {
 							// Subscription exists
 							s.cancel()
 							newm := append(m[:i], m[i+1:]...)
-							c.subscriptions.Store(unsub.etype, newm)
+							c.subscriptions.Store(key, newm)
 							atomic.AddInt64(&c.subcount, -1)
 							break
 						}
