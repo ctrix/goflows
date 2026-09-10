@@ -13,3 +13,7 @@ coverage.html
 .vscode/
 .DS_Store
 *.swp
+
+# Local notes
+NOTES.md
+CLAUDE.md
