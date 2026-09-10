@@ -1,0 +1,105 @@
+# goflows
+
+A lightweight event bus for Go with typed events, pluggable transports and
+request/response messaging, built for CQRS-style applications.
+
+- Typed events routed over named buses
+- Pluggable transport (`EventHandlerInterface`), with an in-memory
+  implementation included
+- Subscribe / unsubscribe callbacks per bus and event type
+- `PublishAndWait` for request/response style flows
+- Structured logging via `log/slog`
+
+## Install
+
+```sh
+go get github.com/ctrix/goflows
+```
+
+Requires Go 1.26 or newer.
+
+## Usage
+
+```go
+package main
+
+import (
+	"log/slog"
+
+	"github.com/ctrix/goflows"
+)
+
+const (
+	BusMain goflows.EventBus = iota + 1
+)
+
+const (
+	EventUserCreated goflows.EventType = iota + 1
+)
+
+type UserCreated struct {
+	goflows.Event
+	UserID string
+}
+
+func (e *UserCreated) Init() {
+	e.BaseInit()
+	e.Name = "user created"
+	e.Type = EventUserCreated
+}
+
+func main() {
+	eh := new(goflows.InMemoryEventHandler)
+	eh.Initialize()
+
+	cq, err := goflows.NewCQRSEngine(eh)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := cq.RegisterBus(BusMain, goflows.NewOption("name", "main")); err != nil {
+		panic(err)
+	}
+	if err := cq.RegisterEvent(BusMain, EventUserCreated, goflows.NewOption("name", "user created")); err != nil {
+		panic(err)
+	}
+
+	if err := cq.Start(); err != nil {
+		panic(err)
+	}
+	defer cq.Stop()
+
+	_ = cq.Subscribe(BusMain, EventUserCreated, func(ev goflows.EventInterface, cbdata any) {
+		slog.Info("got event", "id", ev.GetID(), "name", ev.GetName())
+	}, nil)
+
+	ev := &UserCreated{UserID: "42"}
+	ev.Init()
+	_ = cq.Publish(ev)
+}
+```
+
+## Concepts
+
+| Type | Role |
+| --- | --- |
+| `CQRS` | The engine. Owns buses, event registrations and subscriptions. |
+| `EventBus` | Identifier of a bus. Buses are registered with `RegisterBus`. |
+| `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
+| `EventInterface` / `Event` | Event contract and a base struct to embed in your own events. |
+| `EventHandlerInterface` | Transport abstraction. Implement it to back the engine with another broker. |
+| `InMemoryEventHandler` | Built-in channel-based transport, suitable for single-process use. |
+| `Option` | Key/value option passed to `RegisterBus` / `RegisterEvent` (e.g. `name`, `partitions`). |
+
+## Development
+
+```sh
+make test        # run tests
+make test-race   # run tests with the race detector
+make vet         # go vet
+make cover       # coverage report in coverage.html
+```
+
+## License
+
+TBD.
