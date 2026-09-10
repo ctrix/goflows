@@ -3,6 +3,7 @@ package goflows
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"os"
@@ -525,17 +526,21 @@ func (c *CQRS) Publish(ev EventInterface) error {
 		return err
 	}
 
-	if buslist, err := c.GetBusTypeFromEvent(ev); err != nil {
+	buslist, err := c.GetBusTypeFromEvent(ev)
+	if err != nil {
 		return err
-	} else {
-		for _, bus := range buslist {
-			if err := c.handler.Publish(bus, ev); err != nil {
-				return err
-			}
+	}
+
+	// Deliver to every bus even if some fail, then report all failures. The
+	// caller can still match individual causes with errors.Is.
+	var errs []error
+	for _, bus := range buslist {
+		if err := c.handler.Publish(bus, ev); err != nil {
+			errs = append(errs, fmt.Errorf("bus %d: %w", bus, err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // PublishAndWait publishes ev and waits for a reply of type retet on bus btype
