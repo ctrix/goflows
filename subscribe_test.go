@@ -2,8 +2,10 @@ package goflows
 
 import (
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -147,4 +149,90 @@ func TestUnsubscribeIsScopedToBus(t *testing.T) {
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(1), got, "only the High subscription must remain")
+}
+
+// Unsubscribing while a dispatcher is iterating over the subscriber list must
+// not corrupt the list the dispatcher is reading. With an in-place delete the
+// remaining subscribers get shifted under the iterator, so one of them is
+// invoked twice and another is skipped.
+func TestUnsubscribeDuringDispatchDoesNotCorruptDelivery(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	cq := newScopedEngine(t)
+
+	inside := make(chan struct{})
+	release := make(chan struct{})
+	var first int64
+	blocker := func(EventInterface, any) {
+		if atomic.AddInt64(&first, 1) == 1 {
+			close(inside) // dispatcher is now inside the range loop
+			<-release
+		}
+	}
+
+	var b, c, d int64
+	cbB, cbC, cbD := counterCallback(&b), counterCallback(&c), counterCallback(&d)
+
+	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, blocker, nil))
+	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, cbB, nil))
+	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, cbC, nil))
+	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, cbD, nil))
+
+	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+
+	select {
+	case <-inside:
+	case <-time.After(2 * time.Second):
+		t.Fatal("dispatcher never reached the blocking subscriber")
+	}
+
+	// The dispatcher is parked on the first subscriber. Remove the third one.
+	require.NoError(cq.Unsubscribe(scopeBusHigh, scopeEvOrder, cbC, nil))
+	close(release)
+
+	require.NoError(cq.Stop())
+
+	require.Equal(int64(1), b, "B must be delivered exactly once")
+	require.Equal(int64(1), d, "D must be delivered exactly once")
+	require.LessOrEqual(c, int64(1), "C may be delivered at most once")
+}
+
+// Concurrent publish, subscribe and unsubscribe must be race free. This test
+// only has teeth under -race.
+func TestConcurrentSubscribeUnsubscribePublish(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	cq := newScopedEngine(t)
+
+	var got int64
+	stable := counterCallback(&got)
+	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, stable, nil))
+
+	const rounds = 200
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			_ = cq.Publish(newScopeEvent(scopeEvOrder))
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds; i++ {
+			var n int64
+			cb := counterCallback(&n)
+			_ = cq.Subscribe(scopeBusHigh, scopeEvOrder, cb, nil)
+			_ = cq.Unsubscribe(scopeBusHigh, scopeEvOrder, cb, nil)
+		}
+	}()
+
+	wg.Wait()
+	require.NoError(cq.Stop())
+
+	require.Equal(int64(rounds), got, "the stable subscriber must see every event")
+	require.Equal(int64(1), cq.countSubscriptions())
 }

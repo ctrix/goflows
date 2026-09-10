@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -386,9 +387,11 @@ func (c *CQRS) subscriptionsHandler() {
 						}
 					}
 
-					// Subscription does not exists, add it
+					// Subscription does not exists, add it. Slices stored in
+					// the map are immutable once published: dispatchers may be
+					// iterating over them, so always build a fresh one.
 					if !found {
-						newm := append(m, sub)
+						newm := append(slices.Clone(m), sub)
 						c.subscriptions.Store(key, newm)
 						atomic.AddInt64(&c.subcount, 1)
 					}
@@ -414,7 +417,7 @@ func (c *CQRS) subscriptionsHandler() {
 						if reflect.ValueOf(s.cb) == reflect.ValueOf(unsub.cb) && s.cbdata == unsub.cbdata {
 							// Subscription exists
 							s.cancel()
-							newm := append(m[:i], m[i+1:]...)
+							newm := slices.Delete(slices.Clone(m), i, i+1)
 							c.subscriptions.Store(key, newm)
 							atomic.AddInt64(&c.subcount, -1)
 							break
