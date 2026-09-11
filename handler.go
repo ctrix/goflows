@@ -6,7 +6,8 @@ import (
 
 type EventHandlerInterface interface {
 	Name() string
-	// Initialize(*slog.Logger) EventHandlerInterface
+	// SetLogger is called by the engine at construction with the engine
+	// logger. Implementations must accept nil by ignoring it.
 	SetLogger(l *slog.Logger)
 	RegisterBus(btype EventBus, cfg BusConfig) error
 	BusExists(btype EventBus) bool

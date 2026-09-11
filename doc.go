@@ -7,11 +7,11 @@
 //
 // Typical usage:
 //
-//	eh := new(goflows.InMemoryEventHandler)
-//	eh.Initialize()
-//
-//	cq, err := goflows.NewCQRSEngine(eh)
+//	cq, err := goflows.NewCQRSEngine(new(goflows.InMemoryEventHandler))
 //	// handle err
+//
+//	// The library is silent by default. Pass a logger to see what it does:
+//	// goflows.NewCQRSEngine(handler, goflows.WithLogger(slog.Default()))
 //
 //	cq.RegisterBus(MyBus, goflows.WithBusName("main"), goflows.WithPartitions(2))
 //	cq.RegisterEvent(MyBus, MyEventType, goflows.WithEventName("user created"))

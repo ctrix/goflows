@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"os"
 	"reflect"
 	"runtime/debug"
 	"slices"
@@ -173,36 +172,44 @@ type CQRS struct {
 	stopCh chan struct{}
 }
 
-func NewCQRSEngine(eventh EventHandlerInterface) (*CQRS, error) {
+// EngineOption customises the engine at construction.
+type EngineOption func(*engineConfig)
+
+type engineConfig struct {
+	logger *slog.Logger
+}
+
+// WithLogger sets the logger used by the engine and handed to the transport.
+// By default the library logs nothing. A nil logger is ignored.
+func WithLogger(l *slog.Logger) EngineOption {
+	return func(c *engineConfig) {
+		if l != nil {
+			c.logger = l
+		}
+	}
+}
+
+// NewCQRSEngine builds an engine on top of the given transport.
+func NewCQRSEngine(eventh EventHandlerInterface, opts ...EngineOption) (*CQRS, error) {
 	if eventh == nil {
 		return nil, EEventHandlerInvalid
 	}
 
+	cfg := engineConfig{logger: slog.New(slog.DiscardHandler)}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	c := &CQRS{
+		logger:  cfg.logger.With("library", LIBRARY_NAME),
 		handler: eventh,
 		stopCh:  make(chan struct{}),
 	}
 	c.subscriptions.Store(&subscriptionMap{})
 
-	c.SetLogger(nil)
+	eventh.SetLogger(cfg.logger)
 
 	return c, nil
-}
-
-func (c *CQRS) GetLogger() *slog.Logger {
-	return c.logger
-}
-
-func (c *CQRS) SetLogger(l *slog.Logger) error {
-	// TODO
-	if l == nil {
-		l = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-		// slog.SetDefault(l)
-	}
-
-	c.logger = l.With("library", LIBRARY_NAME)
-
-	return nil
 }
 
 // checkNotStopped returns EEngineStopped once Stop has been called.

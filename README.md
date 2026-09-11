@@ -8,7 +8,7 @@ request/response messaging, built for CQRS-style applications.
   implementation included
 - Subscribe / unsubscribe callbacks per bus and event type
 - `PublishAndWait` for request/response style flows
-- Structured logging via `log/slog`
+- Silent by default; structured logging via `log/slog` with `WithLogger`
 
 ## Install
 
@@ -49,10 +49,10 @@ func (e *UserCreated) Init() {
 }
 
 func main() {
-	eh := new(goflows.InMemoryEventHandler)
-	eh.Initialize()
-
-	cq, err := goflows.NewCQRSEngine(eh)
+	cq, err := goflows.NewCQRSEngine(
+		new(goflows.InMemoryEventHandler),
+		goflows.WithLogger(slog.Default()),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -91,6 +91,7 @@ func main() {
 | `InMemoryEventHandler` | Built-in channel-based transport, suitable for single-process use. |
 | `BusOption` | Functional options for `RegisterBus`: `WithBusName`, `WithPartitions`, `WithBufferSize`. |
 | `EventOption` | Functional options for `RegisterEvent`: `WithEventName`. |
+| `EngineOption` | Functional options for `NewCQRSEngine`: `WithLogger`. |
 
 ## Delivery semantics
 

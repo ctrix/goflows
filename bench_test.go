@@ -1,20 +1,16 @@
 package goflows
 
 import (
-	"log/slog"
 	"testing"
 )
 
 func benchEngine(b *testing.B) *CQRS {
 	b.Helper()
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
-	eh.SetLogger(slog.New(slog.DiscardHandler))
 	cq, err := NewCQRSEngine(eh)
 	if err != nil {
 		b.Fatal(err)
 	}
-	cq.SetLogger(slog.New(slog.DiscardHandler))
 	if err := cq.RegisterBus(scopeBusHigh); err != nil {
 		b.Fatal(err)
 	}

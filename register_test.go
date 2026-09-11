@@ -3,7 +3,6 @@ package goflows
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"testing"
 
@@ -31,14 +30,11 @@ func TestPublishDeliversToAllBusesAndReportsFailures(t *testing.T) {
 	require := require.New(t)
 
 	inner := new(InMemoryEventHandler)
-	inner.Initialize()
-	inner.SetLogger(slog.New(slog.DiscardHandler))
 	boom := errors.New("high bus is down")
 	eh := &failingBusHandler{EventHandlerInterface: inner, failOn: scopeBusHigh, err: boom}
 
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
-	cq.SetLogger(slog.New(slog.DiscardHandler))
 
 	// Registration order matters: the failing bus comes first.
 	require.NoError(cq.RegisterBus(scopeBusHigh))
@@ -66,11 +62,8 @@ func TestRegisterEventConcurrentSameType(t *testing.T) {
 	const buses = 16
 	for round := 0; round < 20; round++ {
 		eh := new(InMemoryEventHandler)
-		eh.Initialize()
-		eh.SetLogger(slog.New(slog.DiscardHandler))
 		cq, err := NewCQRSEngine(eh)
 		require.NoError(err)
-		cq.SetLogger(slog.New(slog.DiscardHandler))
 
 		for i := 0; i < buses; i++ {
 			require.NoError(cq.RegisterBus(scopeBusHigh + EventBus(i)))

@@ -1,7 +1,6 @@
 package goflows
 
 import (
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -47,12 +46,9 @@ func buildScopedEngine(t *testing.T) *CQRS {
 	require := require.New(t)
 
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
-	eh.SetLogger(slog.New(slog.DiscardHandler))
 
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
-	cq.SetLogger(slog.New(slog.DiscardHandler))
 
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.RegisterBus(scopeBusLow))

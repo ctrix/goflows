@@ -48,7 +48,6 @@ func TestBasic(t *testing.T) {
 
 	// **************************************
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
 
 	// **************************************
 	cq, err := NewCQRSEngine(eh)
@@ -183,7 +182,6 @@ func TestPublishAndWait(t *testing.T) {
 
 	// **************************************
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
 
 	// **************************************
 	cq, err := NewCQRSEngine(eh)
@@ -255,7 +253,6 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 
 	// **************************************
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
 
 	// **************************************
 	cq, err := NewCQRSEngine(eh)

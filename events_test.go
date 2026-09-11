@@ -1,7 +1,6 @@
 package goflows
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -33,11 +32,8 @@ func TestPublishUntypedEventFails(t *testing.T) {
 	const firstIota EventType = 1 // what `iota + 1` gives to the first user constant
 
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
-	eh.SetLogger(slog.New(slog.DiscardHandler))
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
-	cq.SetLogger(slog.New(slog.DiscardHandler))
 
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, firstIota))

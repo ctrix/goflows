@@ -1,7 +1,6 @@
 package goflows
 
 import (
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,12 +16,9 @@ func buildEngineWithBus(t *testing.T, opts ...BusOption) *CQRS {
 	require := require.New(t)
 
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
-	eh.SetLogger(slog.New(slog.DiscardHandler))
 
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
-	cq.SetLogger(slog.New(slog.DiscardHandler))
 
 	require.NoError(cq.RegisterBus(scopeBusHigh, opts...))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOrder))
@@ -119,11 +115,8 @@ func TestPartitionsOptionValidation(t *testing.T) {
 	require := require.New(t)
 
 	eh := new(InMemoryEventHandler)
-	eh.Initialize()
-	eh.SetLogger(slog.New(slog.DiscardHandler))
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
-	cq.SetLogger(slog.New(slog.DiscardHandler))
 
 	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(0)), EOptionInvalid)
 	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(-3)), EOptionInvalid)

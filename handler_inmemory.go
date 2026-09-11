@@ -2,7 +2,6 @@ package goflows
 
 import (
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 )
@@ -46,24 +45,30 @@ func (b *inMemoryBus) close() {
 	}
 }
 
+// InMemoryEventHandler is a channel based transport for a single process.
+// The zero value is ready to use; the engine hands it its logger.
 type InMemoryEventHandler struct {
-	logger *slog.Logger
+	logger atomic.Pointer[slog.Logger]
 	inputs sync.Map
-}
-
-func (eh *InMemoryEventHandler) Initialize() EventHandlerInterface {
-	eh.logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	return eh
 }
 
 func (eh *InMemoryEventHandler) Name() string {
 	return INMEMORY_HANDLER_NAME
 }
 
+// SetLogger sets the logger; nil is ignored.
 func (eh *InMemoryEventHandler) SetLogger(l *slog.Logger) {
 	if l != nil {
-		eh.logger = l.With("handler", INMEMORY_HANDLER_NAME)
+		eh.logger.Store(l.With("handler", INMEMORY_HANDLER_NAME))
 	}
+}
+
+// log returns the current logger, or a silent one if none was set.
+func (eh *InMemoryEventHandler) log() *slog.Logger {
+	if l := eh.logger.Load(); l != nil {
+		return l
+	}
+	return slog.New(slog.DiscardHandler)
 }
 
 func (eh *InMemoryEventHandler) RegisterBus(btype EventBus, cfg BusConfig) error {
@@ -77,7 +82,7 @@ func (eh *InMemoryEventHandler) RegisterBus(btype EventBus, cfg BusConfig) error
 
 	bus := newInMemoryBus(btype, cfg.BufferSize)
 
-	eh.logger.Debug("registering event bus", "bus-type", btype, "bus-name", cfg.Name, "buffer-size", cfg.BufferSize)
+	eh.log().Debug("registering event bus", "bus-type", btype, "bus-name", cfg.Name, "buffer-size", cfg.BufferSize)
 
 	if _, loaded := eh.inputs.LoadOrStore(btype, bus); loaded {
 		return EEventBusExists
@@ -115,7 +120,7 @@ func (eh *InMemoryEventHandler) Publish(btype EventBus, ev EventInterface) error
 // Stop marks every bus closed and releases publishers blocked on a full
 // queue. Events already queued stay in the channel for the engine to drain.
 func (eh *InMemoryEventHandler) Stop() {
-	eh.logger.Debug("stopping event handler")
+	eh.log().Debug("stopping event handler")
 
 	eh.inputs.Range(func(k, v interface{}) bool {
 		v.(*inMemoryBus).close()
