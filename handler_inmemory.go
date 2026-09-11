@@ -3,15 +3,11 @@ package goflows
 import (
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 )
 
-const (
-	INMEMORY_HANDLER_NAME       = "InMemoryEventHandler"
-	MAX_INMEMORY_QUEUE_ELEMENTS = 111
-)
+const INMEMORY_HANDLER_NAME = "InMemoryEventHandler"
 
 // inMemoryBus is a bounded queue of events. The channel is never closed:
 // publishers select on it together with done, so a Publish racing with Stop
@@ -23,10 +19,10 @@ type inMemoryBus struct {
 	closed atomic.Bool
 }
 
-func NewInMemoryBus(btype EventBus) *inMemoryBus {
+func newInMemoryBus(btype EventBus, size int) *inMemoryBus {
 	return &inMemoryBus{
 		btype: btype,
-		ch:    make(chan EventInterface, MAX_INMEMORY_QUEUE_ELEMENTS),
+		ch:    make(chan EventInterface, size),
 		done:  make(chan struct{}),
 	}
 }
@@ -55,7 +51,7 @@ type InMemoryEventHandler struct {
 	inputs sync.Map
 }
 
-func (eh *InMemoryEventHandler) Initialize(opts ...Option) EventHandlerInterface {
+func (eh *InMemoryEventHandler) Initialize() EventHandlerInterface {
 	eh.logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	return eh
 }
@@ -70,29 +66,18 @@ func (eh *InMemoryEventHandler) SetLogger(l *slog.Logger) {
 	}
 }
 
-func (eh *InMemoryEventHandler) sanitizeInMemoryBusName(n string) string {
-	n = strings.ToLower(n)
-	n = nonAlphanumericRegex.ReplaceAllString(n, "_")
-	return n
-}
-
-func (eh *InMemoryEventHandler) RegisterBus(btype EventBus, opts ...*Option) error {
+func (eh *InMemoryEventHandler) RegisterBus(btype EventBus, cfg BusConfig) error {
 	if eh.BusExists(btype) {
 		return EEventBusExists
 	}
 
-	bus := NewInMemoryBus(btype)
-
-	for _, opt := range opts {
-		switch opt.Name {
-		case "name", "partitions":
-			// Handled by the engine, nothing to do here.
-		default:
-			eh.logger.Debug("ignoring unknown option while registering event bus", "type", btype, "optname", opt.Name)
-		}
+	if cfg.BufferSize < 1 {
+		return EOptionInvalid
 	}
 
-	eh.logger.Debug("registering event bus", "type", btype)
+	bus := newInMemoryBus(btype, cfg.BufferSize)
+
+	eh.logger.Debug("registering event bus", "bus-type", btype, "bus-name", cfg.Name, "buffer-size", cfg.BufferSize)
 
 	if _, loaded := eh.inputs.LoadOrStore(btype, bus); loaded {
 		return EEventBusExists

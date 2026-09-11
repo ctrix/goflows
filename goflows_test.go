@@ -56,38 +56,38 @@ func TestBasic(t *testing.T) {
 	require.NotNil(cq)
 
 	// **************************************
-	err = cq.RegisterBus(BUS_FIRST, NewOption("name", "high prio"), NewOption("partitions", 2))
+	err = cq.RegisterBus(BUS_FIRST, WithBusName("high prio"), WithPartitions(2))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, NewOption("name", "normal prio"))
+	err = cq.RegisterBus(BUS_SECOND, WithBusName("normal prio"))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_THIRD, NewOption("name", "low prio"))
+	err = cq.RegisterBus(BUS_THIRD, WithBusName("low prio"))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, NewOption("name", "should fail"))
+	err = cq.RegisterBus(BUS_SECOND, WithBusName("should fail"))
 	require.NotNil(err)
 
-	err = cq.RegisterBus(BUS_THIRD, NewOption("name", "normal prio"))
+	err = cq.RegisterBus(BUS_THIRD, WithBusName("normal prio"))
 	require.NotNil(err)
 
 	// **************************************
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, NewOption("name", "event a/1"))
+	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a/1"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_SECOND, EVENT_SECOND, NewOption("name", "event b/2"))
+	err = cq.RegisterEvent(BUS_SECOND, EVENT_SECOND, WithEventName("event b/2"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_THIRD, NewOption("name", "event c/1"))
+	err = cq.RegisterEvent(BUS_FIRST, EVENT_THIRD, WithEventName("event c/1"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, NewOption("name", "event a/1"))
+	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a/1"))
 	require.NotNil(err)
 
-	err = cq.RegisterEvent(BUS_THIRD, EVENT_THIRD, NewOption("name", "event c/3"))
+	err = cq.RegisterEvent(BUS_THIRD, EVENT_THIRD, WithEventName("event c/3"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_FOURTH, EVENT_THIRD, NewOption("name", "event c/4"))
+	err = cq.RegisterEvent(BUS_FOURTH, EVENT_THIRD, WithEventName("event c/4"))
 	require.NotNil(err)
 
 	// **************************************
@@ -191,23 +191,23 @@ func TestPublishAndWait(t *testing.T) {
 	require.NotNil(cq)
 
 	// **************************************
-	err = cq.RegisterBus(BUS_FIRST, NewOption("name", "high prio"), NewOption("partitions", 2))
+	err = cq.RegisterBus(BUS_FIRST, WithBusName("high prio"), WithPartitions(2))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, NewOption("name", "low prio"))
+	err = cq.RegisterBus(BUS_SECOND, WithBusName("low prio"))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_THIRD, NewOption("name", "normal prio"))
+	err = cq.RegisterBus(BUS_THIRD, WithBusName("normal prio"))
 	require.Nil(err)
 
 	// **************************************
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, NewOption("name", "event a"))
+	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_SECOND, EVENT_SECOND, NewOption("name", "event b"))
+	err = cq.RegisterEvent(BUS_SECOND, EVENT_SECOND, WithEventName("event b"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_THIRD, EVENT_THIRD, NewOption("name", "event d"))
+	err = cq.RegisterEvent(BUS_THIRD, EVENT_THIRD, WithEventName("event d"))
 	require.Nil(err)
 
 	// **************************************
@@ -263,10 +263,10 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 	require.NotNil(cq)
 
 	// **************************************
-	err = cq.RegisterBus(BUS_FIRST, NewOption("name", "high prio"), NewOption("partitions", 2))
+	err = cq.RegisterBus(BUS_FIRST, WithBusName("high prio"), WithPartitions(2))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, NewOption("name", "low prio"))
+	err = cq.RegisterBus(BUS_SECOND, WithBusName("low prio"))
 	require.Nil(err)
 
 	// **************************************
@@ -274,14 +274,14 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 	require.Equal(0, len(tot))
 	require.NotNil(err)
 
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, NewOption("name", "event a"))
+	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a"))
 	require.Nil(err)
 
 	tot, err = cq.GetBusTypeFromEventType(EVENT_FIRST)
 	require.Equal(1, len(tot))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_SECOND, EVENT_FIRST, NewOption("name", "event b"))
+	err = cq.RegisterEvent(BUS_SECOND, EVENT_FIRST, WithEventName("event b"))
 	require.Nil(err)
 
 	tot, err = cq.GetBusTypeFromEventType(EVENT_FIRST)

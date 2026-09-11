@@ -8,10 +8,8 @@ import (
 	"maps"
 	"os"
 	"reflect"
-	"regexp"
 	"runtime/debug"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,8 +20,6 @@ const (
 	EventBusInvalid  = 0
 	EventTypeInvalid = 0
 )
-
-var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9_]+`)
 
 var (
 	EEventTypeExists               = errors.New("event type already exists")
@@ -62,24 +58,80 @@ type subscriptionKey struct {
 // guaranteed. A single event is always delivered to its subscribers one after
 // the other, in subscription order.
 type BusDispatcher struct {
-	btype      EventBus
-	ch         <-chan EventInterface
-	partitions int
-	wg         sync.WaitGroup
+	btype EventBus
+	cfg   BusConfig
+	ch    <-chan EventInterface
+	wg    sync.WaitGroup
 }
 
 const defaultPartitions = 1
 
-type Option struct {
-	Name  string
-	Value any
+// DefaultBusBufferSize is the queue length of a bus when WithBufferSize is
+// not given.
+const DefaultBusBufferSize = 111
+
+// BusConfig is the resolved configuration of a bus, built from BusOption
+// values by RegisterBus and handed to the transport.
+type BusConfig struct {
+	// Name is a human readable label used in logs. Optional.
+	Name string
+	// Partitions is the number of dispatcher goroutines consuming the bus.
+	// One preserves publish order; more trades ordering for throughput.
+	Partitions int
+	// BufferSize is the number of events the bus can hold before Publish
+	// blocks. Transports that are not queue based may ignore it.
+	BufferSize int
 }
 
-func NewOption(name string, value any) *Option {
-	return &Option{
-		Name:  name,
-		Value: value,
+// BusOption customises a bus at registration.
+type BusOption func(*BusConfig)
+
+// WithBusName labels the bus in logs.
+func WithBusName(name string) BusOption {
+	return func(c *BusConfig) { c.Name = name }
+}
+
+// WithPartitions sets the number of dispatcher goroutines for the bus. Must
+// be at least one.
+func WithPartitions(n int) BusOption {
+	return func(c *BusConfig) { c.Partitions = n }
+}
+
+// WithBufferSize sets the bus queue length. Must be at least one.
+func WithBufferSize(n int) BusOption {
+	return func(c *BusConfig) { c.BufferSize = n }
+}
+
+func newBusConfig(opts ...BusOption) BusConfig {
+	cfg := BusConfig{
+		Partitions: defaultPartitions,
+		BufferSize: DefaultBusBufferSize,
 	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
+func (c BusConfig) validate() error {
+	if c.Partitions < 1 || c.BufferSize < 1 {
+		return EOptionInvalid
+	}
+	return nil
+}
+
+// EventConfig is the resolved configuration of an event type registration.
+type EventConfig struct {
+	// Name is a human readable label used in logs. Optional.
+	Name string
+}
+
+// EventOption customises an event type at registration.
+type EventOption func(*EventConfig)
+
+// WithEventName labels the event type in logs.
+func WithEventName(name string) EventOption {
+	return func(c *EventConfig) { c.Name = name }
 }
 
 // engineState is the lifecycle of a CQRS engine: created -> started -> stopped.
@@ -107,6 +159,7 @@ type CQRS struct {
 	// the slices stored in it are never mutated once published.
 	regMu      sync.Mutex
 	eventTypes sync.Map // this is a map[EventType][]EventBus
+	eventNames sync.Map // this is a map[EventType]string
 
 	state atomic.Int32 // engineState
 
@@ -161,24 +214,24 @@ func (c *CQRS) checkNotStopped() error {
 	return nil
 }
 
-func (c *CQRS) busDispatcherRun(btype EventBus, partitions int) error {
+func (c *CQRS) busDispatcherRun(btype EventBus, cfg BusConfig) error {
 	ch, ok := c.handler.Range(btype)
 	if !ok {
 		return EEventBusDoesntExists
 	}
 
 	dis := &BusDispatcher{
-		btype:      btype,
-		ch:         ch,
-		partitions: partitions,
+		btype: btype,
+		cfg:   cfg,
+		ch:    ch,
 	}
 
 	// Register the dispatcher before starting its goroutines, so that a Stop()
 	// racing with RegisterBus() always finds it and waits for it.
 	c.subDispatchers.Store(dis.btype, dis)
 
-	dis.wg.Add(partitions)
-	for i := 0; i < partitions; i++ {
+	dis.wg.Add(cfg.Partitions)
+	for i := 0; i < cfg.Partitions; i++ {
 		go c.dispatchLoop(dis)
 	}
 
@@ -230,14 +283,14 @@ func (c *CQRS) deliver(btype EventBus, ev EventInterface) {
 func (c *CQRS) safeCall(sub *EventSubscriptionObject, ev EventInterface) {
 	defer func() {
 		if r := recover(); r != nil {
-			c.logger.Error("subscriber panicked", "bus-type", sub.btype, "event-type", ev.GetType(), "event-id", ev.GetID(), "panic", r, "stack", string(debug.Stack()))
+			c.logger.Error("subscriber panicked", "bus-type", sub.btype, "event-type", ev.GetType(), "event-name", c.eventName(ev.GetType()), "event-id", ev.GetID(), "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 
 	sub.cb(ev, sub.cbdata)
 }
 
-func (c *CQRS) RegisterBus(btype EventBus, opts ...*Option) error {
+func (c *CQRS) RegisterBus(btype EventBus, opts ...BusOption) error {
 	if err := c.checkNotStopped(); err != nil {
 		return err
 	}
@@ -250,32 +303,21 @@ func (c *CQRS) RegisterBus(btype EventBus, opts ...*Option) error {
 		return EEventHandlerNull
 	}
 
-	partitions := defaultPartitions
-	for _, opt := range opts {
-		if opt.Name != "partitions" {
-			continue
-		}
-		n, ok := opt.Value.(int)
-		if !ok || n < 1 {
-			return EOptionInvalid
-		}
-		partitions = n
-	}
-
-	if err := c.handler.RegisterBus(btype, opts...); err != nil {
+	cfg := newBusConfig(opts...)
+	if err := cfg.validate(); err != nil {
 		return err
 	}
 
-	return c.busDispatcherRun(btype, partitions)
+	if err := c.handler.RegisterBus(btype, cfg); err != nil {
+		return err
+	}
+
+	c.logger.Debug("registering event bus", "bus-type", btype, "bus-name", cfg.Name, "partitions", cfg.Partitions, "buffer-size", cfg.BufferSize)
+
+	return c.busDispatcherRun(btype, cfg)
 }
 
-func (c *CQRS) sanitizeEventName(n string) string {
-	n = strings.ToLower(n)
-	n = nonAlphanumericRegex.ReplaceAllString(n, "_")
-	return n
-}
-
-func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...*Option) error {
+func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOption) error {
 	if err := c.checkNotStopped(); err != nil {
 		return err
 	}
@@ -292,17 +334,9 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...*Option) e
 	//	return EEventTypeExists
 	// }
 
-	var name string
+	var cfg EventConfig
 	for _, opt := range opts {
-		switch opt.Name {
-		case "name":
-			if val, ok := opt.Value.(string); ok {
-				name = c.sanitizeEventName(val)
-			}
-		default:
-			c.logger.Debug("cannot handle unknown option while registering event type", "type", etype, "optname", opt.Name)
-		}
-		// TODO OPTS TO HANDLE (if we really want to do it or need it)
+		opt(&cfg)
 	}
 
 	c.regMu.Lock()
@@ -318,7 +352,10 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...*Option) e
 
 	// Never append in place: Publish may be iterating the published slice.
 	c.eventTypes.Store(etype, append(slices.Clone(sl), btype))
-	c.logger.Debug("registering event type", "name", name, "type", etype, "bus", btype)
+	if cfg.Name != "" {
+		c.eventNames.Store(etype, cfg.Name)
+	}
+	c.logger.Debug("registering event type", "event-type", etype, "event-name", c.eventName(etype), "bus-type", btype)
 
 	return nil
 }
@@ -380,6 +417,14 @@ func (c *CQRS) countSubscriptions() int64 {
 // the map and the slice are immutable snapshots, so no lock is needed.
 func (c *CQRS) subscribersFor(btype EventBus, etype EventType) []*EventSubscriptionObject {
 	return (*c.subscriptions.Load())[subscriptionKey{btype: btype, etype: etype}]
+}
+
+// eventName returns the label given with WithEventName, or "" if none.
+func (c *CQRS) eventName(etype EventType) string {
+	if n, ok := c.eventNames.Load(etype); ok {
+		return n.(string)
+	}
+	return ""
 }
 
 // sameSubscription reports whether two subscription requests refer to the same

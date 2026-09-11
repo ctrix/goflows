@@ -13,8 +13,8 @@
 //	cq, err := goflows.NewCQRSEngine(eh)
 //	// handle err
 //
-//	cq.RegisterBus(MyBus, goflows.NewOption("name", "main"))
-//	cq.RegisterEvent(MyBus, MyEventType, goflows.NewOption("name", "user created"))
+//	cq.RegisterBus(MyBus, goflows.WithBusName("main"), goflows.WithPartitions(2))
+//	cq.RegisterEvent(MyBus, MyEventType, goflows.WithEventName("user created"))
 //	cq.Start()
 //	defer cq.Stop()
 //
@@ -27,7 +27,9 @@
 // # Delivery semantics
 //
 // Every bus is consumed by one dispatcher with a configurable number of
-// partitions, set with the "partitions" option of RegisterBus (default 1).
+// partitions, set with [WithPartitions] on RegisterBus (default 1). The queue
+// length of the bus is set with [WithBufferSize] (default
+// [DefaultBusBufferSize]).
 //
 //   - With one partition, events are delivered sequentially in publish order.
 //     Subscribers run one after the other in the dispatcher goroutine, so a

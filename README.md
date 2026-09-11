@@ -57,10 +57,10 @@ func main() {
 		panic(err)
 	}
 
-	if err := cq.RegisterBus(BusMain, goflows.NewOption("name", "main")); err != nil {
+	if err := cq.RegisterBus(BusMain, goflows.WithBusName("main")); err != nil {
 		panic(err)
 	}
-	if err := cq.RegisterEvent(BusMain, EventUserCreated, goflows.NewOption("name", "user created")); err != nil {
+	if err := cq.RegisterEvent(BusMain, EventUserCreated, goflows.WithEventName("user created")); err != nil {
 		panic(err)
 	}
 
@@ -89,12 +89,13 @@ func main() {
 | `EventInterface` / `Event` | Event contract and a base struct to embed in your own events. |
 | `EventHandlerInterface` | Transport abstraction. Implement it to back the engine with another broker. |
 | `InMemoryEventHandler` | Built-in channel-based transport, suitable for single-process use. |
-| `Option` | Key/value option passed to `RegisterBus` / `RegisterEvent` (e.g. `name`, `partitions`). |
+| `BusOption` | Functional options for `RegisterBus`: `WithBusName`, `WithPartitions`, `WithBufferSize`. |
+| `EventOption` | Functional options for `RegisterEvent`: `WithEventName`. |
 
 ## Delivery semantics
 
-- One dispatcher per bus, with `partitions` worker goroutines
-  (`goflows.NewOption("partitions", n)` on `RegisterBus`, default 1).
+- One dispatcher per bus, with `WithPartitions(n)` worker goroutines
+  (default 1). The bus queue length is `WithBufferSize(n)` (default 111).
 - One partition: events are delivered in publish order, subscribers run one
   after the other. A slow subscriber delays later events on that bus.
 - N partitions: up to N events in flight, no ordering across events. Each

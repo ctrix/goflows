@@ -12,7 +12,7 @@ import (
 
 // buildEngineWithBus returns a started engine with scopeEvOrder registered on
 // scopeBusHigh, which is created with the given options.
-func buildEngineWithBus(t *testing.T, opts ...*Option) *CQRS {
+func buildEngineWithBus(t *testing.T, opts ...BusOption) *CQRS {
 	t.Helper()
 	require := require.New(t)
 
@@ -81,7 +81,7 @@ func TestSinglePartitionPreservesOrder(t *testing.T) {
 func TestPartitionsDeliverConcurrently(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	cq := buildEngineWithBus(t, NewOption("partitions", 2))
+	cq := buildEngineWithBus(t, WithPartitions(2))
 
 	firstIn := make(chan struct{})
 	release := make(chan struct{})
@@ -113,7 +113,7 @@ func TestPartitionsDeliverConcurrently(t *testing.T) {
 	require.Equal(int64(2), calls)
 }
 
-// An invalid partitions value is rejected at registration.
+// Invalid option values are rejected at registration.
 func TestPartitionsOptionValidation(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
@@ -125,8 +125,9 @@ func TestPartitionsOptionValidation(t *testing.T) {
 	require.NoError(err)
 	cq.SetLogger(slog.New(slog.DiscardHandler))
 
-	require.ErrorIs(cq.RegisterBus(scopeBusHigh, NewOption("partitions", 0)), EOptionInvalid)
-	require.ErrorIs(cq.RegisterBus(scopeBusHigh, NewOption("partitions", "two")), EOptionInvalid)
+	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(0)), EOptionInvalid)
+	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(-3)), EOptionInvalid)
+	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithBufferSize(0)), EOptionInvalid)
 	require.False(cq.handler.BusExists(scopeBusHigh), "a rejected bus must not be created")
 	require.NoError(cq.Stop())
 }
