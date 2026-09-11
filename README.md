@@ -118,4 +118,4 @@ make cover       # coverage report in coverage.html
 
 ## License
 
-TBD.
+MIT. See [LICENSE](LICENSE).
