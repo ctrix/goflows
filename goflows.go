@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 const (
@@ -559,7 +558,15 @@ func (c *CQRS) GetBusTypeFromEvent(ev EventInterface) ([]EventBus, error) {
 	return c.GetBusTypeFromEventType(etype)
 }
 
-func (c *CQRS) Publish(ev EventInterface) error {
+// Publish delivers ev to every bus its type is registered on. It blocks while
+// a bus is full, until ctx is done: the transport returns ctx.Err() in that
+// case. Use a context with a deadline when publishing from inside a subscriber
+// of the same bus, otherwise a full bus deadlocks the dispatcher.
+func (c *CQRS) Publish(ctx context.Context, ev EventInterface) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if err := c.checkNotStopped(); err != nil {
 		return err
 	}
@@ -573,7 +580,7 @@ func (c *CQRS) Publish(ev EventInterface) error {
 	// caller can still match individual causes with errors.Is.
 	var errs []error
 	for _, bus := range buslist {
-		if err := c.handler.Publish(bus, ev); err != nil {
+		if err := c.handler.Publish(ctx, bus, ev); err != nil {
 			errs = append(errs, fmt.Errorf("bus %d: %w", bus, err))
 		}
 	}
@@ -581,13 +588,16 @@ func (c *CQRS) Publish(ev EventInterface) error {
 	return errors.Join(errs...)
 }
 
-// PublishAndWait publishes ev and waits for a reply of type retet on bus btype
-// whose Referrer is the ID of ev. The first matching reply is returned and any
-// later one is dropped. On timeout the error is context.DeadlineExceeded. The
-// temporary reply subscription is always removed before returning.
-func (c *CQRS) PublishAndWait(btype EventBus, ev EventInterface, retet EventType, timeout time.Duration) (EventInterface, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+// Request publishes ev and waits for a reply of type retet on bus btype whose
+// Referrer is the ID of ev. The first matching reply is returned and any later
+// one is dropped. When ctx is done before a reply arrives the error is
+// ctx.Err(): context.DeadlineExceeded for a timeout, context.Canceled for an
+// external cancellation. The temporary reply subscription is always removed
+// before returning.
+func (c *CQRS) Request(ctx context.Context, btype EventBus, ev EventInterface, retet EventType) (EventInterface, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Buffered by one so the dispatcher never blocks on us; the non-blocking
 	// send makes the first reply win and discards the rest without touching
@@ -610,7 +620,7 @@ func (c *CQRS) PublishAndWait(btype EventBus, ev EventInterface, retet EventType
 	}
 	defer sub.Unsubscribe()
 
-	if err := c.Publish(ev); err != nil {
+	if err := c.Publish(ctx, ev); err != nil {
 		return nil, err
 	}
 
@@ -618,7 +628,7 @@ func (c *CQRS) PublishAndWait(btype EventBus, ev EventInterface, retet EventType
 	case res := <-reply:
 		return res, nil
 	case <-ctx.Done():
-		c.logger.Debug("request timed out", "event-id", waitid, "reply-type", retet, "bus-type", btype)
+		c.logger.Debug("request abandoned", "event-id", waitid, "reply-type", retet, "bus-type", btype, "reason", ctx.Err())
 		return nil, ctx.Err()
 	}
 }

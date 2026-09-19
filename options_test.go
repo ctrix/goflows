@@ -94,12 +94,12 @@ func TestBufferSizeIsHonoured(t *testing.T) {
 	})
 	require.NoError(err)
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder))) // taken by the dispatcher, which blocks
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))) // taken by the dispatcher, which blocks
 	<-inside
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder))) // fills the single buffer slot
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))) // fills the single buffer slot
 
 	third := make(chan error, 1)
-	go func() { third <- cq.Publish(newScopeEvent(scopeEvOrder)) }()
+	go func() { third <- cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)) }()
 	select {
 	case <-third:
 		t.Fatal("third Publish returned: the buffer is larger than requested")

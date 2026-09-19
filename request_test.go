@@ -24,7 +24,7 @@ func newRequestEngine(t *testing.T, responder func(req EventInterface, reply fun
 		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(req EventInterface) {
 			responder(req, func(r *scopeEvent) {
 				r.Referrer = req.GetID()
-				_ = cq.Publish(r)
+				_ = cq.Publish(context.Background(), r)
 			})
 		})
 		require.NoError(err)
@@ -35,7 +35,7 @@ func newRequestEngine(t *testing.T, responder func(req EventInterface, reply fun
 
 // A request that times out must not leave its temporary reply subscription
 // behind.
-func TestPublishAndWaitTimeoutRemovesSubscription(t *testing.T) {
+func TestRequestTimeoutRemovesSubscription(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 	cq := newRequestEngine(t, nil) // nobody answers
@@ -49,7 +49,9 @@ func TestPublishAndWaitTimeoutRemovesSubscription(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := cq.PublishAndWait(scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply, 10*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+			defer cancel()
+			_, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
 			errs <- err
 		}()
 	}
@@ -64,7 +66,7 @@ func TestPublishAndWaitTimeoutRemovesSubscription(t *testing.T) {
 }
 
 // A request whose Publish fails must not leave its reply subscription behind.
-func TestPublishAndWaitPublishErrorRemovesSubscription(t *testing.T) {
+func TestRequestPublishErrorRemovesSubscription(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 	cq := newRequestEngine(t, nil)
@@ -73,7 +75,7 @@ func TestPublishAndWaitPublishErrorRemovesSubscription(t *testing.T) {
 
 	// This event type is not registered anywhere: Publish must fail fast.
 	const unregistered EventType = 9999
-	_, err := cq.PublishAndWait(scopeBusHigh, newScopeEvent(unregistered), scopeEvReply, time.Second)
+	_, err := cq.Request(context.Background(), scopeBusHigh, newScopeEvent(unregistered), scopeEvReply)
 	require.ErrorIs(err, EEventTypeInvalid)
 
 	require.Equal(before, cq.countSubscriptions(), "failed request leaked its subscription")
@@ -82,7 +84,7 @@ func TestPublishAndWaitPublishErrorRemovesSubscription(t *testing.T) {
 
 // Two replies to the same request must not race with the caller reading the
 // result. The first reply wins, the second is dropped.
-func TestPublishAndWaitTwoRepliesFirstWins(t *testing.T) {
+func TestRequestTwoRepliesFirstWins(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 	cq := newRequestEngine(t, func(req EventInterface, reply func(*scopeEvent)) {
@@ -97,7 +99,9 @@ func TestPublishAndWaitTwoRepliesFirstWins(t *testing.T) {
 	before := cq.countSubscriptions()
 
 	for i := 0; i < 50; i++ {
-		res, err := cq.PublishAndWait(scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply, time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		res, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
+		cancel()
 		require.NoError(err)
 		require.Equal("first", res.GetName())
 	}
@@ -107,7 +111,7 @@ func TestPublishAndWaitTwoRepliesFirstWins(t *testing.T) {
 }
 
 // The happy path: request, reply, result carries the reply.
-func TestPublishAndWaitReturnsReply(t *testing.T) {
+func TestRequestReturnsReply(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 	cq := newRequestEngine(t, func(req EventInterface, reply func(*scopeEvent)) {
@@ -117,12 +121,32 @@ func TestPublishAndWaitReturnsReply(t *testing.T) {
 	})
 
 	req := newScopeEvent(scopeEvOrder)
-	res, err := cq.PublishAndWait(scopeBusHigh, req, scopeEvReply, time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	res, err := cq.Request(ctx, scopeBusHigh, req, scopeEvReply)
 	require.NoError(err)
 	require.Equal("pong", res.GetName())
 	ref := res.GetReferrer()
 	require.NotNil(ref)
 	require.Equal(req.GetID(), *ref)
 
+	require.NoError(cq.Stop())
+}
+
+// A request whose context is already cancelled fails with context.Canceled,
+// distinct from a timeout, and leaves no subscription behind.
+func TestRequestCancelledContext(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	cq := newRequestEngine(t, nil)
+	before := cq.countSubscriptions()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
+	require.ErrorIs(err, context.Canceled)
+	require.NotErrorIs(err, context.DeadlineExceeded)
+
+	require.Equal(before, cq.countSubscriptions())
 	require.NoError(cq.Stop())
 }

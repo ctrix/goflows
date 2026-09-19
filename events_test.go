@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ func TestPublishUntypedEventFails(t *testing.T) {
 
 	e := &untypedEvent{}
 	e.Init()
-	err = cq.Publish(e)
+	err = cq.Publish(context.Background(), e)
 	require.ErrorIs(err, EEventTypeInvalid)
 
 	require.NoError(cq.Stop())

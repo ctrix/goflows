@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -74,8 +75,8 @@ func TestSubscribeIsScopedToBus(t *testing.T) {
 	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&onHigh))
 	require.NoError(err)
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder))) // goes to both buses
-	require.NoError(cq.Stop())                               // flushes the queues
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))) // goes to both buses
+	require.NoError(cq.Stop())                                                     // flushes the queues
 
 	require.Equal(int64(1), onHigh, "subscriber on High must see the event exactly once")
 }
@@ -93,8 +94,8 @@ func TestSubscribeEachBusGetsItsOwnCopy(t *testing.T) {
 	_, err = cq.Subscribe(scopeBusLow, scopeEvOrder, counterCallback(&onLow))
 	require.NoError(err)
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(2), onHigh)
@@ -112,7 +113,7 @@ func TestSubscribeOnUnregisteredBusFails(t *testing.T) {
 	_, err := cq.Subscribe(scopeBusGhost, scopeEvOrder, counterCallback(&got))
 	require.ErrorIs(err, EEventBusDoesntExists)
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(0), got)
@@ -129,7 +130,7 @@ func TestSubscribeOnBusWithoutThatEventFails(t *testing.T) {
 	_, err := cq.Subscribe(scopeBusLow, scopeEvOnlyHigh, counterCallback(&got))
 	require.ErrorIs(err, EEventNotRegisteredOnBus)
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOnlyHigh)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOnlyHigh)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(0), got)
@@ -153,7 +154,7 @@ func TestUnsubscribeIsScopedToBus(t *testing.T) {
 	require.NoError(low.Unsubscribe())
 	require.Equal(int64(1), cq.countSubscriptions())
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(1), got, "only the High subscription must remain")
@@ -190,7 +191,7 @@ func TestUnsubscribeDuringDispatchDoesNotCorruptDelivery(t *testing.T) {
 	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, cbD)
 	require.NoError(err)
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 
 	select {
 	case <-inside:
@@ -227,7 +228,7 @@ func TestConcurrentSubscribeUnsubscribePublish(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < rounds; i++ {
-			_ = cq.Publish(newScopeEvent(scopeEvOrder))
+			_ = cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))
 		}
 	}()
 

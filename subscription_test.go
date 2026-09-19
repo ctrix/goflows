@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 
@@ -24,11 +25,11 @@ func TestSubscriptionHandleUnsubscribes(t *testing.T) {
 	require.Equal(scopeBusHigh, sub.Bus())
 	require.Equal(scopeEvOrder, sub.Type())
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	<-delivered // Publish is asynchronous: wait for the first delivery
 	require.NoError(sub.Unsubscribe())
 	require.Equal(int64(0), cq.countSubscriptions())
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(1), got, "only the event published before Unsubscribe is delivered")
@@ -49,7 +50,7 @@ func TestSameCallbackSubscribedTwiceIsCalledTwice(t *testing.T) {
 	require.NotSame(s1, s2)
 	require.Equal(int64(2), cq.countSubscriptions())
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(2), got)
@@ -70,7 +71,7 @@ func TestUnsubscribeRemovesOnlyItself(t *testing.T) {
 	require.NoError(subA.Unsubscribe())
 	require.Equal(int64(1), cq.countSubscriptions())
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(0), a)

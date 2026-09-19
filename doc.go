@@ -23,7 +23,11 @@
 //	})
 //	// handle err; later: sub.Unsubscribe()
 //
-//	cq.Publish(&MyEvent{})
+//	cq.Publish(ctx, &MyEvent{})
+//
+//	// Request/reply: publish and wait for an event of ReplyType on MyBus whose
+//	// Referrer is the request ID. ctx bounds the wait.
+//	reply, err := cq.Request(ctx, MyBus, &MyRequest{}, ReplyType)
 //
 // # Delivery semantics
 //
@@ -42,9 +46,10 @@
 // A subscriber that panics is logged and skipped; the bus keeps running.
 //
 // The in-memory transport is a bounded queue: Publish blocks while the bus is
-// full. A subscriber that publishes synchronously on the bus it is consuming
-// can therefore deadlock once that bus is full. Publish replies on a different
-// bus, or publish asynchronously from inside a subscriber.
+// full, until ctx is done, and then returns ctx.Err(). A subscriber that
+// publishes synchronously on the bus it is consuming can therefore stall the
+// dispatcher while that bus is full: give such a Publish a deadline, publish
+// replies on a different bus, or publish asynchronously.
 //
 // Stop releases publishers blocked on a full bus with an error, then delivers
 // every event already queued before returning.

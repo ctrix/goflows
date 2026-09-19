@@ -2,6 +2,7 @@ package goflows
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -32,8 +33,8 @@ func TestDefaultLoggerIsSilent(t *testing.T) {
 	require.NoError(cq.Start())
 	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {})
 	require.NoError(err)
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
-	require.Error(cq.Publish(newScopeEvent(scopeEvOnlyHigh))) // unregistered: error path logs too
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
+	require.Error(cq.Publish(context.Background(), newScopeEvent(scopeEvOnlyHigh))) // unregistered: error path logs too
 	require.NoError(cq.Stop())
 
 	os.Stdout = orig

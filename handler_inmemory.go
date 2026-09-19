@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -9,8 +10,9 @@ import (
 const INMEMORY_HANDLER_NAME = "InMemoryEventHandler"
 
 // inMemoryBus is a bounded queue of events. The channel is never closed:
-// publishers select on it together with done, so a Publish racing with Stop
-// returns EEventBusClosed instead of panicking on a closed channel.
+// publishers select on it together with done and the caller context, so a
+// Publish racing with Stop returns EEventBusClosed instead of panicking on a
+// closed channel, and a Publish on a full bus gives up when ctx is done.
 type inMemoryBus struct {
 	btype  EventBus
 	ch     chan EventInterface
@@ -26,9 +28,13 @@ func newInMemoryBus(btype EventBus, size int) *inMemoryBus {
 	}
 }
 
-func (b *inMemoryBus) publish(ev EventInterface) error {
+func (b *inMemoryBus) publish(ctx context.Context, ev EventInterface) error {
 	if b.closed.Load() {
 		return EEventBusClosed
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	select {
@@ -36,6 +42,8 @@ func (b *inMemoryBus) publish(ev EventInterface) error {
 		return nil
 	case <-b.done:
 		return EEventBusClosed
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -108,13 +116,13 @@ func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan EventInterface, bo
 	return bus.ch, ok
 }
 
-func (eh *InMemoryEventHandler) Publish(btype EventBus, ev EventInterface) error {
+func (eh *InMemoryEventHandler) Publish(ctx context.Context, btype EventBus, ev EventInterface) error {
 	abus, ok := eh.inputs.Load(btype)
 	if !ok {
 		return EEventBusDoesntExists
 	}
 
-	return abus.(*inMemoryBus).publish(ev)
+	return abus.(*inMemoryBus).publish(ctx, ev)
 }
 
 // Stop marks every bus closed and releases publishers blocked on a full

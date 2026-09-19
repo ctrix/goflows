@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"github.com/stretchr/testify/require"
 	"log/slog"
 	"sync/atomic"
@@ -125,23 +126,23 @@ func TestBasic(t *testing.T) {
 
 	te := &TestEvent{}
 	te.Init()
-	err = cq.Publish(te)
+	err = cq.Publish(context.Background(), te)
 	require.Nil(err)
 
 	te = &TestEvent{}
 	te.Init()
-	err = cq.Publish(te)
+	err = cq.Publish(context.Background(), te)
 	require.Nil(err)
 
 	te = &TestEvent{}
 	te.Init()
-	err = cq.Publish(te)
+	err = cq.Publish(context.Background(), te)
 	require.Nil(err)
 
 	te = &TestEvent{}
 	te.Init()
 	te.Type = EVENT_SECOND
-	err = cq.Publish(te)
+	err = cq.Publish(context.Background(), te)
 	require.Nil(err)
 
 	// **************************************
@@ -165,7 +166,7 @@ func TestBasic(t *testing.T) {
 	require.Equal(int64(1), counter2)
 }
 
-func TestPublishAndWait(t *testing.T) {
+func TestRequest(t *testing.T) {
 	t.Parallel()
 
 	require := require.New(t)
@@ -209,7 +210,7 @@ func TestPublishAndWait(t *testing.T) {
 		te2 := &TestEvent{}
 		te2.Init()
 		te2.Referrer = ev.GetID()
-		cq.Publish(te2)
+		cq.Publish(context.Background(), te2)
 	}
 
 	_, err = cq.Subscribe(BUS_THIRD, EVENT_THIRD, cbf3)
@@ -221,7 +222,9 @@ func TestPublishAndWait(t *testing.T) {
 
 	tot1 := cq.countSubscriptions()
 
-	nev, err := cq.PublishAndWait(BUS_FIRST, te, EVENT_FIRST, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	nev, err := cq.Request(ctx, BUS_FIRST, te, EVENT_FIRST)
 	require.Nil(err)
 	require.NotNil(nev)
 	require.Equal(EventType(EVENT_FIRST), nev.GetType())
@@ -296,7 +299,7 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 	te.Init()
 	te.Type = EVENT_FIRST
 
-	err = cq.Publish(te)
+	err = cq.Publish(context.Background(), te)
 	require.Nil(err)
 
 	// **************************************

@@ -7,7 +7,7 @@ request/response messaging, built for CQRS-style applications.
 - Pluggable transport (`EventHandlerInterface`), with an in-memory
   implementation included
 - Subscribe returns a handle; `Unsubscribe` on it removes exactly that subscription
-- `PublishAndWait` for request/response style flows
+- `Request` for request/response style flows, bounded by a context
 - Silent by default; structured logging via `log/slog` with `WithLogger`
 
 ## Install
@@ -24,6 +24,7 @@ Requires Go 1.26 or newer.
 package main
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/ctrix/goflows"
@@ -79,7 +80,7 @@ func main() {
 
 	ev := &UserCreated{UserID: "42"}
 	ev.Init()
-	_ = cq.Publish(ev)
+	_ = cq.Publish(context.Background(), ev)
 }
 ```
 
@@ -107,10 +108,14 @@ func main() {
 - N partitions: up to N events in flight, no ordering across events. Each
   event still reaches its subscribers sequentially.
 - A subscriber that panics is logged and skipped. The bus keeps running.
-- The in-memory transport is a bounded queue. `Publish` blocks while the bus
-  is full, so a subscriber publishing synchronously on its own bus can
-  deadlock under load: use a different bus for replies, or publish
-  asynchronously.
+- The in-memory transport is a bounded queue. `Publish(ctx, ev)` blocks while
+  the bus is full until `ctx` is done, then returns `ctx.Err()`. A subscriber
+  publishing synchronously on its own bus stalls the dispatcher while the bus
+  is full: give that `Publish` a deadline, use a different bus for replies, or
+  publish asynchronously.
+- `Request(ctx, bus, ev, replyType)` publishes and waits for a reply whose
+  `Referrer` is the request ID. A timeout is `context.DeadlineExceeded`, an
+  external cancel is `context.Canceled`.
 - `Stop` releases blocked publishers with an error and drains what is already
   queued before returning.
 

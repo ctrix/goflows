@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -40,7 +41,7 @@ func TestPanicInCallbackDoesNotKillBus(t *testing.T) {
 	require.NoError(err)
 
 	for i := 0; i < 3; i++ {
-		require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+		require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	}
 	require.NoError(cq.Stop())
 
@@ -68,7 +69,7 @@ func TestSinglePartitionPreservesOrder(t *testing.T) {
 		ev := newScopeEvent(scopeEvOrder)
 		ev.Name = string(rune('a' + i%26))
 		want = append(want, ev.Name)
-		require.NoError(cq.Publish(ev))
+		require.NoError(cq.Publish(context.Background(), ev))
 	}
 	require.NoError(cq.Stop())
 
@@ -97,9 +98,9 @@ func TestPartitionsDeliverConcurrently(t *testing.T) {
 	})
 	require.NoError(err)
 
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	<-firstIn
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 
 	select {
 	case <-secondIn:
@@ -152,7 +153,7 @@ func TestPublishConcurrentWithStopDoesNotPanic(t *testing.T) {
 					}
 				}()
 				for i := 0; i < 200; i++ {
-					_ = cq.Publish(newScopeEvent(scopeEvOrder))
+					_ = cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))
 				}
 			}()
 		}

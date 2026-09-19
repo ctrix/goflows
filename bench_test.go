@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"testing"
 )
 
@@ -57,7 +58,7 @@ func BenchmarkPublish(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = cq.Publish(ev)
+			_ = cq.Publish(context.Background(), ev)
 		}
 	})
 	b.StopTimer()

@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestSubscribeBeforeStartWorks(t *testing.T) {
 	require.NoError(err)
 
 	require.NoError(cq.Start())
-	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(1), got)
@@ -67,7 +68,7 @@ func TestPublishAfterStopFails(t *testing.T) {
 	require.NoError(cq.Stop())
 
 	var err error
-	require.NotPanics(func() { err = cq.Publish(newScopeEvent(scopeEvOrder)) })
+	require.NotPanics(func() { err = cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)) })
 	require.ErrorIs(err, EEngineStopped)
 }
 
@@ -126,7 +127,7 @@ func TestStopFlushesPendingEvents(t *testing.T) {
 	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
 	require.NoError(err)
 	for i := 0; i < 50; i++ {
-		require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
+		require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	}
 	require.NoError(cq.Stop())
 

@@ -1,6 +1,7 @@
 package goflows
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -16,11 +17,11 @@ type failingBusHandler struct {
 	err    error
 }
 
-func (f *failingBusHandler) Publish(btype EventBus, ev EventInterface) error {
+func (f *failingBusHandler) Publish(ctx context.Context, btype EventBus, ev EventInterface) error {
 	if btype == f.failOn {
 		return f.err
 	}
-	return f.EventHandlerInterface.Publish(btype, ev)
+	return f.EventHandlerInterface.Publish(ctx, btype, ev)
 }
 
 // When an event is registered on several buses and one of them fails, the
@@ -47,7 +48,7 @@ func TestPublishDeliversToAllBusesAndReportsFailures(t *testing.T) {
 	_, err = cq.Subscribe(scopeBusLow, scopeEvOrder, counterCallback(&onLow))
 	require.NoError(err)
 
-	err = cq.Publish(newScopeEvent(scopeEvOrder))
+	err = cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))
 	require.ErrorIs(err, boom)
 	require.NoError(cq.Stop())
 
