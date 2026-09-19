@@ -96,39 +96,29 @@ func TestBasic(t *testing.T) {
 
 	// **************************************
 	var counter int64 = 0
-	cbf := func(ev EventInterface, cbdata any) {
-		cnt := cbdata.(*int64)
-		atomic.AddInt64(cnt, 1)
-		// slog.Info("1>>> Subscription callback", "event-id", ev.GetID())
-		// slog.Info("======================================================= 1", "counter", *cnt)
+	cbf := func(ev EventInterface) {
+		atomic.AddInt64(&counter, 1)
 	}
 
 	var counter2 int64 = 0
-	cbf2 := func(ev EventInterface, cbdata any) {
-		cnt := cbdata.(*int64)
-		atomic.AddInt64(cnt, 1)
-		// slog.Info("2>>> Subscription callback", "event-id", ev.GetID())
-		// slog.Info("======================================================= 2", "counter", *cnt)
+	cbf2 := func(ev EventInterface) {
+		atomic.AddInt64(&counter2, 1)
 	}
 
 	var tot int64
 	tot = cq.countSubscriptions()
 	require.Equal(int64(0), tot)
 
-	err = cq.Subscribe(BUS_FIRST, EVENT_FIRST, cbf, &counter)
+	_, err = cq.Subscribe(BUS_FIRST, EVENT_FIRST, cbf)
 	require.Nil(err)
 
-	err = cq.Subscribe(BUS_SECOND, EVENT_SECOND, cbf2, &counter2)
+	_, err = cq.Subscribe(BUS_SECOND, EVENT_SECOND, cbf2)
 	require.Nil(err)
 
 	tot = cq.countSubscriptions()
 	require.Equal(int64(2), tot)
 
-	cq.Unsubscribe(BUS_FIRST, EVENT_FIRST+9999, cbf2, &counter2) // Inexistant subscription
-	tot = cq.countSubscriptions()
-	require.Equal(int64(2), tot)
-
-	err = cq.Subscribe(BUS_FIRST, EVENT_FOURTH, cbf, &counter) // Event type is not registered
+	_, err = cq.Subscribe(BUS_FIRST, EVENT_FOURTH, cbf) // Event type is not registered
 	require.NotNil(err)
 
 	// **************************************
@@ -214,7 +204,7 @@ func TestPublishAndWait(t *testing.T) {
 	require.Nil(err)
 
 	// **************************************
-	cbf3 := func(ev EventInterface, cbdata any) {
+	cbf3 := func(ev EventInterface) {
 		// slog.Info("======================================================= CB listener (pub&wait)")
 		te2 := &TestEvent{}
 		te2.Init()
@@ -222,7 +212,7 @@ func TestPublishAndWait(t *testing.T) {
 		cq.Publish(te2)
 	}
 
-	err = cq.Subscribe(BUS_THIRD, EVENT_THIRD, cbf3, nil)
+	_, err = cq.Subscribe(BUS_THIRD, EVENT_THIRD, cbf3)
 	require.Nil(err)
 
 	te := &TestEvent{}
@@ -291,15 +281,15 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 
 	// **************************************
 	var counter int64
-	cbfc := func(ev EventInterface, cbdata any) {
+	cbfc := func(ev EventInterface) {
 		slog.Info("======================================================= CB double catcher")
 		atomic.AddInt64(&counter, 1)
 	}
 
-	err = cq.Subscribe(BUS_FIRST, EVENT_FIRST, cbfc, nil)
+	_, err = cq.Subscribe(BUS_FIRST, EVENT_FIRST, cbfc)
 	require.Nil(err)
 
-	err = cq.Subscribe(BUS_SECOND, EVENT_FIRST, cbfc, nil)
+	_, err = cq.Subscribe(BUS_SECOND, EVENT_FIRST, cbfc)
 	require.Nil(err)
 
 	te := &TestEvent{}

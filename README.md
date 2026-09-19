@@ -6,7 +6,7 @@ request/response messaging, built for CQRS-style applications.
 - Typed events routed over named buses
 - Pluggable transport (`EventHandlerInterface`), with an in-memory
   implementation included
-- Subscribe / unsubscribe callbacks per bus and event type
+- Subscribe returns a handle; `Unsubscribe` on it removes exactly that subscription
 - `PublishAndWait` for request/response style flows
 - Silent by default; structured logging via `log/slog` with `WithLogger`
 
@@ -69,9 +69,13 @@ func main() {
 	}
 	defer cq.Stop()
 
-	_ = cq.Subscribe(BusMain, EventUserCreated, func(ev goflows.EventInterface, cbdata any) {
+	sub, err := cq.Subscribe(BusMain, EventUserCreated, func(ev goflows.EventInterface) {
 		slog.Info("got event", "id", ev.GetID(), "name", ev.GetName())
-	}, nil)
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer sub.Unsubscribe()
 
 	ev := &UserCreated{UserID: "42"}
 	ev.Init()
@@ -87,6 +91,7 @@ func main() {
 | `EventBus` | Identifier of a bus. Buses are registered with `RegisterBus`. |
 | `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
 | `EventInterface` / `Event` | Event contract and a base struct to embed in your own events. |
+| `Subscription` | Handle returned by `Subscribe`, with `Unsubscribe`, `Bus` and `Type`. |
 | `EventHandlerInterface` | Transport abstraction. Implement it to back the engine with another broker. |
 | `InMemoryEventHandler` | Built-in channel-based transport, suitable for single-process use. |
 | `BusOption` | Functional options for `RegisterBus`: `WithBusName`, `WithPartitions`, `WithBufferSize`. |

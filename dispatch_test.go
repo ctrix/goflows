@@ -34,8 +34,10 @@ func TestPanicInCallbackDoesNotKillBus(t *testing.T) {
 	cq := buildEngineWithBus(t)
 
 	var healthy int64
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface, any) { panic("boom") }, nil))
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&healthy), nil))
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) { panic("boom") })
+	require.NoError(err)
+	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&healthy))
+	require.NoError(err)
 
 	for i := 0; i < 3; i++ {
 		require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
@@ -53,11 +55,12 @@ func TestSinglePartitionPreservesOrder(t *testing.T) {
 
 	var mu sync.Mutex
 	var seen []string
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, func(ev EventInterface, _ any) {
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(ev EventInterface) {
 		mu.Lock()
 		seen = append(seen, ev.GetName())
 		mu.Unlock()
-	}, nil))
+	})
+	require.NoError(err)
 
 	const n = 100
 	want := make([]string, 0, n)
@@ -83,7 +86,7 @@ func TestPartitionsDeliverConcurrently(t *testing.T) {
 	release := make(chan struct{})
 	secondIn := make(chan struct{})
 	var calls int64
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface, any) {
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {
 		switch atomic.AddInt64(&calls, 1) {
 		case 1:
 			close(firstIn)
@@ -91,7 +94,8 @@ func TestPartitionsDeliverConcurrently(t *testing.T) {
 		case 2:
 			close(secondIn)
 		}
-	}, nil))
+	})
+	require.NoError(err)
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
 	<-firstIn
@@ -133,7 +137,8 @@ func TestPublishConcurrentWithStopDoesNotPanic(t *testing.T) {
 
 	for round := 0; round < 20; round++ {
 		cq := buildEngineWithBus(t)
-		require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface, any) {}, nil))
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {})
+		require.NoError(err)
 
 		var wg sync.WaitGroup
 		var panicked atomic.Bool

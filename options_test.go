@@ -88,10 +88,11 @@ func TestBufferSizeIsHonoured(t *testing.T) {
 	inside := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface, any) {
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {
 		once.Do(func() { close(inside) })
 		<-release
-	}, nil))
+	})
+	require.NoError(err)
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder))) // taken by the dispatcher, which blocks
 	<-inside

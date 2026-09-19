@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"reflect"
 	"runtime/debug"
 	"slices"
 	"sync"
@@ -147,7 +146,28 @@ const (
 // subscriptionMap is an immutable snapshot of every subscription. Writers
 // build a new map and swap the pointer; readers load the pointer and look up
 // without any lock, so the hot path never touches shared writable memory.
-type subscriptionMap map[subscriptionKey][]*EventSubscriptionObject
+type subscriptionMap map[subscriptionKey][]*Subscription
+
+// Subscription is the handle returned by Subscribe. Each call to Subscribe
+// creates a distinct subscription, even for the same callback; identity is the
+// handle itself, which is what Unsubscribe removes.
+type Subscription struct {
+	engine *CQRS
+	key    subscriptionKey
+	cb     EventSubscriptionCallback
+}
+
+// Bus returns the bus the subscription listens on.
+func (s *Subscription) Bus() EventBus { return s.key.btype }
+
+// Type returns the event type the subscription listens for.
+func (s *Subscription) Type() EventType { return s.key.etype }
+
+// Unsubscribe removes the subscription. It is idempotent: removing an already
+// removed subscription returns nil. After Stop it returns EEngineStopped.
+func (s *Subscription) Unsubscribe() error {
+	return s.engine.unsubscribe(s)
+}
 
 type CQRS struct {
 	logger *slog.Logger
@@ -287,14 +307,14 @@ func (c *CQRS) deliver(btype EventBus, ev EventInterface) {
 	}
 }
 
-func (c *CQRS) safeCall(sub *EventSubscriptionObject, ev EventInterface) {
+func (c *CQRS) safeCall(sub *Subscription, ev EventInterface) {
 	defer func() {
 		if r := recover(); r != nil {
-			c.logger.Error("subscriber panicked", "bus-type", sub.btype, "event-type", ev.GetType(), "event-name", c.eventName(ev.GetType()), "event-id", ev.GetID(), "panic", r, "stack", string(debug.Stack()))
+			c.logger.Error("subscriber panicked", "bus-type", sub.key.btype, "event-type", ev.GetType(), "event-name", c.eventName(ev.GetType()), "event-id", ev.GetID(), "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 
-	sub.cb(ev, sub.cbdata)
+	sub.cb(ev)
 }
 
 func (c *CQRS) RegisterBus(btype EventBus, opts ...BusOption) error {
@@ -422,7 +442,7 @@ func (c *CQRS) countSubscriptions() int64 {
 
 // subscribersFor returns the current subscriber list for (btype, etype). Both
 // the map and the slice are immutable snapshots, so no lock is needed.
-func (c *CQRS) subscribersFor(btype EventBus, etype EventType) []*EventSubscriptionObject {
+func (c *CQRS) subscribersFor(btype EventBus, etype EventType) []*Subscription {
 	return (*c.subscriptions.Load())[subscriptionKey{btype: btype, etype: etype}]
 }
 
@@ -432,12 +452,6 @@ func (c *CQRS) eventName(etype EventType) string {
 		return n.(string)
 	}
 	return ""
-}
-
-// sameSubscription reports whether two subscription requests refer to the same
-// callback and callback data.
-func sameSubscription(a, b *EventSubscriptionObject) bool {
-	return reflect.ValueOf(a.cb).Pointer() == reflect.ValueOf(b.cb).Pointer() && a.cbdata == b.cbdata
 }
 
 // checkEventOnBus verifies that btype is a registered bus and that etype has
@@ -459,99 +473,72 @@ func (c *CQRS) checkEventOnBus(btype EventBus, etype EventType) error {
 	return nil
 }
 
-func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback, cbdata any) error {
+// Subscribe registers cb for events of type etype travelling on bus btype and
+// returns a handle to remove it. The bus must exist and etype must be
+// registered on it. Every call creates a new subscription.
+func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback) (*Subscription, error) {
 	if etype == EventTypeInvalid {
-		return EEventTypeInvalid
+		return nil, EEventTypeInvalid
 	}
 
 	if cb == nil {
-		return ESubscriptionInvalid
+		return nil, ESubscriptionInvalid
 	}
 
 	if err := c.checkNotStopped(); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := c.checkEventOnBus(btype, etype); err != nil {
-		return err
+		return nil, err
 	}
 
-	sub := &EventSubscriptionObject{
-		btype:  btype,
-		etype:  etype,
+	sub := &Subscription{
+		engine: c,
+		key:    subscriptionKey{btype: btype, etype: etype},
 		cb:     cb,
-		cbdata: cbdata,
 	}
-	key := subscriptionKey{btype: btype, etype: etype}
 
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
 
 	c.logger.Debug("subscribing", "bus-type", btype, "sub-type", etype)
 
-	cur := *c.subscriptions.Load()
-	m := cur[key]
-	for _, s := range m {
-		if sameSubscription(s, sub) {
-			// Subscription exists, do nothing
-			return nil
-		}
-	}
-
 	// Never mutate the published snapshot: dispatchers may be reading it.
+	cur := *c.subscriptions.Load()
 	next := maps.Clone(cur)
-	next[key] = append(slices.Clone(m), sub)
+	next[sub.key] = append(slices.Clone(cur[sub.key]), sub)
 	c.subscriptions.Store(&next)
 
-	return nil
+	return sub, nil
 }
 
-func (c *CQRS) Unsubscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback, cbdata any) error {
-	if etype == EventTypeInvalid {
-		return EEventTypeInvalid
-	}
-
-	if cb == nil {
-		return EUnsubscriptionInvalid
-	}
-
+func (c *CQRS) unsubscribe(sub *Subscription) error {
 	if err := c.checkNotStopped(); err != nil {
 		return err
 	}
 
-	if err := c.checkEventOnBus(btype, etype); err != nil {
-		return err
-	}
-
-	unsub := &EventSubscriptionObject{
-		btype:  btype,
-		etype:  etype,
-		cb:     cb,
-		cbdata: cbdata,
-	}
-	key := subscriptionKey{btype: btype, etype: etype}
-
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
 
-	c.logger.Debug("unsubscribing", "bus-type", btype, "unsub-type", etype)
-
 	cur := *c.subscriptions.Load()
-	m := cur[key]
-	for i, s := range m {
-		if sameSubscription(s, unsub) {
-			next := maps.Clone(cur)
-			if newm := slices.Delete(slices.Clone(m), i, i+1); len(newm) == 0 {
-				delete(next, key)
-			} else {
-				next[key] = newm
-			}
-			c.subscriptions.Store(&next)
-			return nil
-		}
+	m := cur[sub.key]
+	i := slices.Index(m, sub)
+	if i < 0 {
+		// Already removed, nothing to do
+		return nil
 	}
 
-	// Subscription does not exist, nothing to do
+	c.logger.Debug("unsubscribing", "bus-type", sub.key.btype, "unsub-type", sub.key.etype)
+
+	next := maps.Clone(cur)
+	if newm := slices.Delete(slices.Clone(m), i, i+1); len(newm) == 0 {
+		delete(next, sub.key)
+	} else {
+		next[sub.key] = newm
+	}
+	c.subscriptions.Store(&next)
+
 	return nil
 }
 
@@ -607,7 +594,7 @@ func (c *CQRS) PublishAndWait(btype EventBus, ev EventInterface, retet EventType
 	// any shared variable.
 	reply := make(chan EventInterface, 1)
 	waitid := ev.GetID()
-	cbf := func(cur EventInterface, _ any) {
+	cbf := func(cur EventInterface) {
 		if ref := cur.GetReferrer(); ref != nil && *ref == waitid {
 			select {
 			case reply <- cur:
@@ -617,10 +604,11 @@ func (c *CQRS) PublishAndWait(btype EventBus, ev EventInterface, retet EventType
 	}
 
 	// Subscribe before publishing so a fast reply cannot be missed.
-	if err := c.Subscribe(btype, retet, cbf, nil); err != nil {
+	sub, err := c.Subscribe(btype, retet, cbf)
+	if err != nil {
 		return nil, err
 	}
-	defer c.Unsubscribe(btype, retet, cbf, nil)
+	defer sub.Unsubscribe()
 
 	if err := c.Publish(ev); err != nil {
 		return nil, err

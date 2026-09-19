@@ -30,7 +30,8 @@ func TestSubscribeBeforeStartWorks(t *testing.T) {
 
 	var got int64
 	err := callOrTimeout(t, "Subscribe before Start", func() error {
-		return cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got), nil)
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+		return err
 	})
 	require.NoError(err)
 
@@ -45,16 +46,17 @@ func TestSubscribeAfterStopFails(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 	cq := newScopedEngine(t)
+	sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
+	require.NoError(err)
 	require.NoError(cq.Stop())
 
-	err := callOrTimeout(t, "Subscribe after Stop", func() error {
-		return cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)), nil)
+	err = callOrTimeout(t, "Subscribe after Stop", func() error {
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
+		return err
 	})
 	require.ErrorIs(err, EEngineStopped)
 
-	err = callOrTimeout(t, "Unsubscribe after Stop", func() error {
-		return cq.Unsubscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)), nil)
-	})
+	err = callOrTimeout(t, "Unsubscribe after Stop", sub.Unsubscribe)
 	require.ErrorIs(err, EEngineStopped)
 }
 
@@ -121,7 +123,8 @@ func TestStopFlushesPendingEvents(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	var got int64
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got), nil))
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+	require.NoError(err)
 	for i := 0; i < 50; i++ {
 		require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
 	}

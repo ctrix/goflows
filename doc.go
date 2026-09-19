@@ -18,9 +18,10 @@
 //	cq.Start()
 //	defer cq.Stop()
 //
-//	cq.Subscribe(MyBus, MyEventType, func(ev goflows.EventInterface, cbdata any) {
+//	sub, err := cq.Subscribe(MyBus, MyEventType, func(ev goflows.EventInterface) {
 //		// react to the event
-//	}, nil)
+//	})
+//	// handle err; later: sub.Unsubscribe()
 //
 //	cq.Publish(&MyEvent{})
 //

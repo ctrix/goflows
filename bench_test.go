@@ -20,7 +20,7 @@ func benchEngine(b *testing.B) *CQRS {
 	if err := cq.Start(); err != nil {
 		b.Fatal(err)
 	}
-	if err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface, any) {}, nil); err != nil {
+	if _, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {}); err != nil {
 		b.Fatal(err)
 	}
 	return cq

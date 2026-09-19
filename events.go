@@ -52,11 +52,6 @@ func (e *Event) GetReferrer() *string {
 	return nil
 }
 
-type EventSubscriptionCallback func(ev EventInterface, cbdata any)
-
-type EventSubscriptionObject struct {
-	btype  EventBus
-	etype  EventType
-	cb     EventSubscriptionCallback
-	cbdata any
-}
+// EventSubscriptionCallback is invoked for every event delivered to a
+// subscription. Capture any state you need in the closure.
+type EventSubscriptionCallback func(ev EventInterface)

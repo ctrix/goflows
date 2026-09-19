@@ -21,12 +21,13 @@ func newRequestEngine(t *testing.T, responder func(req EventInterface, reply fun
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvReply))
 
 	if responder != nil {
-		require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, func(req EventInterface, _ any) {
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(req EventInterface) {
 			responder(req, func(r *scopeEvent) {
 				r.Referrer = req.GetID()
 				_ = cq.Publish(r)
 			})
-		}, nil))
+		})
+		require.NoError(err)
 	}
 
 	return cq

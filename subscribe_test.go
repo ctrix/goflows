@@ -60,7 +60,7 @@ func buildScopedEngine(t *testing.T) *CQRS {
 }
 
 func counterCallback(n *int64) EventSubscriptionCallback {
-	return func(EventInterface, any) { atomic.AddInt64(n, 1) }
+	return func(EventInterface) { atomic.AddInt64(n, 1) }
 }
 
 // A subscriber on one bus must receive only the copies of the event that
@@ -71,7 +71,8 @@ func TestSubscribeIsScopedToBus(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	var onHigh int64
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&onHigh), nil))
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&onHigh))
+	require.NoError(err)
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder))) // goes to both buses
 	require.NoError(cq.Stop())                               // flushes the queues
@@ -87,8 +88,10 @@ func TestSubscribeEachBusGetsItsOwnCopy(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	var onHigh, onLow int64
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&onHigh), nil))
-	require.NoError(cq.Subscribe(scopeBusLow, scopeEvOrder, counterCallback(&onLow), nil))
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&onHigh))
+	require.NoError(err)
+	_, err = cq.Subscribe(scopeBusLow, scopeEvOrder, counterCallback(&onLow))
+	require.NoError(err)
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
@@ -106,7 +109,7 @@ func TestSubscribeOnUnregisteredBusFails(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	var got int64
-	err := cq.Subscribe(scopeBusGhost, scopeEvOrder, counterCallback(&got), nil)
+	_, err := cq.Subscribe(scopeBusGhost, scopeEvOrder, counterCallback(&got))
 	require.ErrorIs(err, EEventBusDoesntExists)
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
@@ -123,7 +126,7 @@ func TestSubscribeOnBusWithoutThatEventFails(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	var got int64
-	err := cq.Subscribe(scopeBusLow, scopeEvOnlyHigh, counterCallback(&got), nil)
+	_, err := cq.Subscribe(scopeBusLow, scopeEvOnlyHigh, counterCallback(&got))
 	require.ErrorIs(err, EEventNotRegisteredOnBus)
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOnlyHigh)))
@@ -141,11 +144,13 @@ func TestUnsubscribeIsScopedToBus(t *testing.T) {
 
 	var got int64
 	cb := counterCallback(&got)
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, cb, nil))
-	require.NoError(cq.Subscribe(scopeBusLow, scopeEvOrder, cb, nil))
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, cb)
+	require.NoError(err)
+	low, err := cq.Subscribe(scopeBusLow, scopeEvOrder, cb)
+	require.NoError(err)
 	require.Equal(int64(2), cq.countSubscriptions())
 
-	require.NoError(cq.Unsubscribe(scopeBusLow, scopeEvOrder, cb, nil))
+	require.NoError(low.Unsubscribe())
 	require.Equal(int64(1), cq.countSubscriptions())
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
@@ -166,7 +171,7 @@ func TestUnsubscribeDuringDispatchDoesNotCorruptDelivery(t *testing.T) {
 	inside := make(chan struct{})
 	release := make(chan struct{})
 	var first int64
-	blocker := func(EventInterface, any) {
+	blocker := func(EventInterface) {
 		if atomic.AddInt64(&first, 1) == 1 {
 			close(inside) // dispatcher is now inside the range loop
 			<-release
@@ -176,10 +181,14 @@ func TestUnsubscribeDuringDispatchDoesNotCorruptDelivery(t *testing.T) {
 	var b, c, d int64
 	cbB, cbC, cbD := counterCallback(&b), counterCallback(&c), counterCallback(&d)
 
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, blocker, nil))
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, cbB, nil))
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, cbC, nil))
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, cbD, nil))
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, blocker)
+	require.NoError(err)
+	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, cbB)
+	require.NoError(err)
+	subC, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, cbC)
+	require.NoError(err)
+	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, cbD)
+	require.NoError(err)
 
 	require.NoError(cq.Publish(newScopeEvent(scopeEvOrder)))
 
@@ -190,7 +199,7 @@ func TestUnsubscribeDuringDispatchDoesNotCorruptDelivery(t *testing.T) {
 	}
 
 	// The dispatcher is parked on the first subscriber. Remove the third one.
-	require.NoError(cq.Unsubscribe(scopeBusHigh, scopeEvOrder, cbC, nil))
+	require.NoError(subC.Unsubscribe())
 	close(release)
 
 	require.NoError(cq.Stop())
@@ -208,8 +217,8 @@ func TestConcurrentSubscribeUnsubscribePublish(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	var got int64
-	stable := counterCallback(&got)
-	require.NoError(cq.Subscribe(scopeBusHigh, scopeEvOrder, stable, nil))
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+	require.NoError(err)
 
 	const rounds = 200
 	var wg sync.WaitGroup
@@ -227,9 +236,9 @@ func TestConcurrentSubscribeUnsubscribePublish(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < rounds; i++ {
 			var n int64
-			cb := counterCallback(&n)
-			_ = cq.Subscribe(scopeBusHigh, scopeEvOrder, cb, nil)
-			_ = cq.Unsubscribe(scopeBusHigh, scopeEvOrder, cb, nil)
+			if sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&n)); err == nil {
+				_ = sub.Unsubscribe()
+			}
 		}
 	}()
 

@@ -40,7 +40,8 @@ func TestPublishUntypedEventFails(t *testing.T) {
 	require.NoError(cq.Start())
 
 	var got int64
-	require.NoError(cq.Subscribe(scopeBusHigh, firstIota, counterCallback(&got), nil))
+	_, err = cq.Subscribe(scopeBusHigh, firstIota, counterCallback(&got))
+	require.NoError(err)
 
 	e := &untypedEvent{}
 	e.Init()
