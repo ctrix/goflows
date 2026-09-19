@@ -22,7 +22,7 @@ func newRequestEngine(t *testing.T, responder func(req Event, reply func(*scopeE
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvReply))
 
 	if responder != nil {
-		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(req Event) {
+		_, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, func(req Event) {
 			responder(req, func(r *scopeEvent) {
 				r.Referrer = req.GetID()
 				_ = cq.Publish(context.Background(), r)
@@ -53,7 +53,7 @@ func TestRequestTimeoutRemovesSubscription(t *testing.T) {
 				defer wg.Done()
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 				defer cancel()
-				_, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
+				_, err := Request[Event](ctx, cq, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
 				errs <- err
 			}()
 		}
@@ -78,7 +78,7 @@ func TestRequestPublishErrorRemovesSubscription(t *testing.T) {
 
 	// This event type is not registered anywhere: Publish must fail fast.
 	const unregistered EventType = 9999
-	_, err := cq.Request(context.Background(), scopeBusHigh, newScopeEvent(unregistered), scopeEvReply)
+	_, err := Request[Event](context.Background(), cq, scopeBusHigh, newScopeEvent(unregistered), scopeEvReply)
 	require.ErrorIs(err, ErrEventTypeInvalid)
 
 	require.Equal(before, cq.countSubscriptions(), "failed request leaked its subscription")
@@ -103,7 +103,7 @@ func TestRequestTwoRepliesFirstWins(t *testing.T) {
 
 	for i := 0; i < 50; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		res, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
+		res, err := Request[Event](ctx, cq, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
 		cancel()
 		require.NoError(err)
 		require.Equal("first", res.GetName())
@@ -126,7 +126,7 @@ func TestRequestReturnsReply(t *testing.T) {
 	req := newScopeEvent(scopeEvOrder)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	res, err := cq.Request(ctx, scopeBusHigh, req, scopeEvReply)
+	res, err := Request[Event](ctx, cq, scopeBusHigh, req, scopeEvReply)
 	require.NoError(err)
 	require.Equal("pong", res.GetName())
 	require.Equal(req.GetID(), res.GetReferrer())
@@ -144,7 +144,7 @@ func TestRequestCancelledContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
+	_, err := Request[Event](ctx, cq, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
 	require.ErrorIs(err, context.Canceled)
 	require.NotErrorIs(err, context.DeadlineExceeded)
 

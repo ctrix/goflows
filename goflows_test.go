@@ -100,16 +100,16 @@ func TestBasic(t *testing.T) {
 	tot = cq.countSubscriptions()
 	require.Equal(int64(0), tot)
 
-	_, err = cq.Subscribe(BUS_FIRST, EVENT_FIRST, cbf)
+	_, err = Subscribe(cq, BUS_FIRST, EVENT_FIRST, cbf)
 	require.Nil(err)
 
-	_, err = cq.Subscribe(BUS_SECOND, EVENT_SECOND, cbf2)
+	_, err = Subscribe(cq, BUS_SECOND, EVENT_SECOND, cbf2)
 	require.Nil(err)
 
 	tot = cq.countSubscriptions()
 	require.Equal(int64(2), tot)
 
-	_, err = cq.Subscribe(BUS_FIRST, EVENT_FOURTH, cbf) // Event type is not registered
+	_, err = Subscribe(cq, BUS_FIRST, EVENT_FOURTH, cbf) // Event type is not registered
 	require.NotNil(err)
 
 	// **************************************
@@ -189,7 +189,7 @@ func TestRequest(t *testing.T) {
 		cq.Publish(context.Background(), te2)
 	}
 
-	_, err = cq.Subscribe(BUS_THIRD, EVENT_THIRD, cbf3)
+	_, err = Subscribe(cq, BUS_THIRD, EVENT_THIRD, cbf3)
 	require.Nil(err)
 
 	te := newTestEvent(EVENT_THIRD)
@@ -198,7 +198,7 @@ func TestRequest(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	nev, err := cq.Request(ctx, BUS_FIRST, te, EVENT_FIRST)
+	nev, err := Request[Event](ctx, cq, BUS_FIRST, te, EVENT_FIRST)
 	require.Nil(err)
 	require.NotNil(nev)
 	require.Equal(EventType(EVENT_FIRST), nev.GetType())
@@ -263,10 +263,10 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 		atomic.AddInt64(&counter, 1)
 	}
 
-	_, err = cq.Subscribe(BUS_FIRST, EVENT_FIRST, cbfc)
+	_, err = Subscribe(cq, BUS_FIRST, EVENT_FIRST, cbfc)
 	require.Nil(err)
 
-	_, err = cq.Subscribe(BUS_SECOND, EVENT_FIRST, cbfc)
+	_, err = Subscribe(cq, BUS_SECOND, EVENT_FIRST, cbfc)
 	require.Nil(err)
 
 	te := newTestEvent(EVENT_FIRST)

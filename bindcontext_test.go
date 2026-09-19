@@ -19,7 +19,7 @@ func TestBindContextUnsubscribesWhenDone(t *testing.T) {
 
 		var got int64
 		ctx, cancel := context.WithCancel(context.Background())
-		sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+		sub, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(&got))
 		require.NoError(err)
 		require.Same(sub, sub.BindContext(ctx))
 
@@ -47,14 +47,14 @@ func TestBindContextEdgeCases(t *testing.T) {
 
 		done, cancel := context.WithCancel(context.Background())
 		cancel()
-		sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
+		sub, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
 		require.NoError(err)
 		sub.BindContext(done)
 		synctest.Wait()
 		require.Equal(int64(0), cq.countSubscriptions())
 
 		ctx, cancel2 := context.WithCancel(context.Background())
-		sub2, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
+		sub2, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
 		require.NoError(err)
 		sub2.BindContext(ctx)
 		require.NoError(sub2.Unsubscribe())

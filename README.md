@@ -5,11 +5,12 @@ request/response messaging, built for CQRS-style applications.
 
 - Typed events routed over named buses; `OfType` binds an event type value to
   one Go type so colliding constants fail instead of cross-delivering
-- Generic `Subscribe[T]` and `Request[T]`: callbacks and replies already typed
+- Generic `Subscribe[T]` and `Request[T]`: callbacks and replies already typed,
+  `goflows.Event` as `T` for the untyped form
 - Pluggable transport (`Transport`), with an in-memory
   implementation included
 - Subscribe returns a handle; `Unsubscribe` on it removes exactly that subscription
-- `Request` for request/response style flows, bounded by a context
+- `Request[T]` for request/response style flows, bounded by a context
 - Silent by default; structured logging via `log/slog` with `WithLogger`
 
 ## Install
@@ -89,8 +90,9 @@ func main() {
 | `EventBus` | Identifier of a bus. Buses are registered with `RegisterBus`. |
 | `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
 | `Event` / `BaseEvent` | Event contract and the base struct to embed in your own events, built with `NewBaseEvent`. |
+| `Subscribe[T]` | Package function: `goflows.Subscribe(cq, bus, type, func(ev *T))`. Use `goflows.Event` as `T` to receive everything untyped. |
+| `Request[T]` | Package function: publish and wait for the reply as `T`. |
 | `Subscription` | Handle returned by `Subscribe`, with `Unsubscribe`, `BindContext`, `Bus` and `Type`. |
-| `Subscribe[T]` / `Request[T]` | Package-level typed forms of the engine methods. |
 | `Transport` | Transport abstraction: `Open`, `Has`, `Stream`, `Publish`, `Close`. Implement it to back the engine with a broker; add `SetLogger` to receive the engine logger. |
 | `InMemoryTransport` | Built-in channel-based transport, suitable for single-process use. |
 | `BusOption` | Functional options for `RegisterBus`: `WithBusName`, `WithPartitions`, `WithBufferSize`. |

@@ -58,7 +58,7 @@ func TestPublishRejectsWrongGoType(t *testing.T) {
 	cq := typedEngine(t)
 
 	var got int64
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+	_, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(&got))
 	require.NoError(err)
 
 	impostor := &orderShipped{BaseEvent: NewBaseEvent(scopeEvOrder)} // claims scopeEvOrder
@@ -147,4 +147,20 @@ func TestTypedRequest(t *testing.T) {
 	require.NoError(err)
 	require.Equal("ups", shipped.Carrier)
 	require.NoError(cq.Stop())
+}
+
+// An untyped subscriber, T = Event, is fine on a type bound with OfType: the
+// binding constrains concrete types, not interfaces.
+func TestUntypedSubscribeOnBoundType(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	cq := typedEngine(t)
+
+	var got int64
+	_, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, func(Event) { atomic.AddInt64(&got, 1) })
+	require.NoError(err)
+
+	require.NoError(cq.Publish(context.Background(), newOrderPlaced(1)))
+	require.NoError(cq.Stop())
+	require.Equal(int64(1), got)
 }

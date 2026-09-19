@@ -23,7 +23,7 @@ func TestSelfPublishOnFullBusHonoursContext(t *testing.T) {
 		innerDone := make(chan struct{})
 		var innerErr atomic.Value
 		var calls int64
-		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
+		_, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, func(Event) {
 			if atomic.AddInt64(&calls, 1) != 1 {
 				return
 			}
@@ -60,7 +60,7 @@ func TestPublishCancelledContextFails(t *testing.T) {
 	cq := buildEngineWithBus(t)
 
 	var got int64
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+	_, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(&got))
 	require.NoError(err)
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -528,10 +528,10 @@ func (c *Engine) checkEventOnBus(btype EventBus, etype EventType) error {
 	return nil
 }
 
-// Subscribe registers cb for events of type etype travelling on bus btype and
+// subscribe registers cb for events of type etype travelling on bus btype and
 // returns a handle to remove it. The bus must exist and etype must be
 // registered on it. Every call creates a new subscription.
-func (c *Engine) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback) (*Subscription, error) {
+func (c *Engine) subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback) (*Subscription, error) {
 	if etype == EventTypeInvalid {
 		return nil, ErrEventTypeInvalid
 	}
@@ -568,21 +568,28 @@ func (c *Engine) Subscribe(btype EventBus, etype EventType, cb EventSubscription
 	return sub, nil
 }
 
-// Subscribe is the typed form of [Engine.Subscribe]: fn receives the event as
-// T, no type assertion needed. If etype is bound with [OfType] to a type
-// other than T the call fails with ErrEventTypeMismatch. If it is not bound, an
-// event that is not a T is logged and skipped.
+// Subscribe registers fn for events of type etype travelling on bus btype and
+// returns a handle to remove it. fn receives the event as T: use the concrete
+// type to skip the type assertion, or [Event] to receive everything.
+//
+// The bus must exist and etype must be registered on it. If etype is bound
+// with [OfType] to a concrete type other than T the call fails with
+// ErrEventTypeMismatch; an interface T is never checked. If etype is not
+// bound, an event that is not a T is logged and skipped. Every call creates a
+// new subscription.
 func Subscribe[T Event](c *Engine, btype EventBus, etype EventType, fn func(T)) (*Subscription, error) {
 	if fn == nil {
 		return nil, ErrSubscriptionInvalid
 	}
 
 	want := reflect.TypeFor[T]()
-	if err := c.checkGoType(etype, want); err != nil {
-		return nil, err
+	if want.Kind() != reflect.Interface {
+		if err := c.checkGoType(etype, want); err != nil {
+			return nil, err
+		}
 	}
 
-	return c.Subscribe(btype, etype, func(ev Event) {
+	return c.subscribe(btype, etype, func(ev Event) {
 		t, ok := ev.(T)
 		if !ok {
 			c.logger.Error("event does not match subscription type", "bus-type", btype, "event-type", etype, "event-id", ev.GetID(), "want", want.String(), "got", reflect.TypeOf(ev).String())
@@ -592,12 +599,17 @@ func Subscribe[T Event](c *Engine, btype EventBus, etype EventType, fn func(T)) 
 	})
 }
 
-// Request is the typed form of [Engine.Request]: the reply is returned as T. A
-// reply of another Go type fails with ErrEventTypeMismatch.
+// Request publishes ev and waits for a reply of type retet on bus btype whose
+// Referrer is the ID of ev, returned as T. Use the concrete reply type, or
+// [Event] for any. The first matching reply wins and later ones are dropped.
+// When ctx is done first the error is ctx.Err(): context.DeadlineExceeded for
+// a timeout, context.Canceled for an external cancellation. A reply that is
+// not a T fails with ErrEventTypeMismatch. The temporary reply subscription is
+// always removed before returning.
 func Request[T Event](ctx context.Context, c *Engine, btype EventBus, ev Event, retet EventType) (T, error) {
 	var zero T
 
-	res, err := c.Request(ctx, btype, ev, retet)
+	res, err := c.request(ctx, btype, ev, retet)
 	if err != nil {
 		return zero, err
 	}
@@ -692,13 +704,8 @@ func (c *Engine) Publish(ctx context.Context, ev Event) error {
 	return errors.Join(errs...)
 }
 
-// Request publishes ev and waits for a reply of type retet on bus btype whose
-// Referrer is the ID of ev. The first matching reply is returned and any later
-// one is dropped. When ctx is done before a reply arrives the error is
-// ctx.Err(): context.DeadlineExceeded for a timeout, context.Canceled for an
-// external cancellation. The temporary reply subscription is always removed
-// before returning.
-func (c *Engine) Request(ctx context.Context, btype EventBus, ev Event, retet EventType) (Event, error) {
+// request is the untyped core of [Request].
+func (c *Engine) request(ctx context.Context, btype EventBus, ev Event, retet EventType) (Event, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -718,7 +725,7 @@ func (c *Engine) Request(ctx context.Context, btype EventBus, ev Event, retet Ev
 	}
 
 	// Subscribe before publishing so a fast reply cannot be missed.
-	sub, err := c.Subscribe(btype, retet, cbf)
+	sub, err := c.subscribe(btype, retet, cbf)
 	if err != nil {
 		return nil, err
 	}

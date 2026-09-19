@@ -35,7 +35,7 @@ func TestTransportWithoutSetLogger(t *testing.T) {
 	require.NoError(cq.Start())
 
 	var got int64
-	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+	_, err = Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(&got))
 	require.NoError(err)
 	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
@@ -70,7 +70,7 @@ func TestStopReturnsTransportCloseError(t *testing.T) {
 	require.NoError(cq.Start())
 
 	var got int64
-	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&got))
+	_, err = Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(&got))
 	require.NoError(err)
 	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 

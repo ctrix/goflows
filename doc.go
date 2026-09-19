@@ -27,13 +27,14 @@
 // [OfType] binds an EventType value to one Go type: publishing or subscribing
 // with another type for that value fails with ErrEventTypeMismatch, so two
 // packages that pick the same number do not silently receive each other's
-// events. cq.Subscribe with a func(goflows.Event) is the untyped form.
+// events. Subscribe with a func(goflows.Event) receives every event of the
+// type untyped.
 //
 //	cq.Publish(ctx, &MyEvent{BaseEvent: goflows.NewBaseEvent(MyEventType)})
 //
 //	// Request/reply: publish and wait for an event of ReplyType on MyBus whose
 //	// Referrer is the request ID. ctx bounds the wait.
-//	reply, err := cq.Request(ctx, MyBus, &MyRequest{}, ReplyType)
+//	reply, err := goflows.Request[*MyReply](ctx, cq, MyBus, &MyRequest{}, ReplyType)
 //
 // # Delivery semantics
 //

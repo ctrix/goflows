@@ -16,7 +16,7 @@ func TestSubscriptionHandleUnsubscribes(t *testing.T) {
 
 	var got int64
 	delivered := make(chan struct{}, 8)
-	sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
+	sub, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, func(Event) {
 		atomic.AddInt64(&got, 1)
 		delivered <- struct{}{}
 	})
@@ -43,9 +43,9 @@ func TestSameCallbackSubscribedTwiceIsCalledTwice(t *testing.T) {
 
 	var got int64
 	cb := counterCallback(&got)
-	s1, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, cb)
+	s1, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, cb)
 	require.NoError(err)
-	s2, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, cb)
+	s2, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, cb)
 	require.NoError(err)
 	require.NotSame(s1, s2)
 	require.Equal(int64(2), cq.countSubscriptions())
@@ -63,9 +63,9 @@ func TestUnsubscribeRemovesOnlyItself(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	var a, b int64
-	subA, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&a))
+	subA, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(&a))
 	require.NoError(err)
-	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&b))
+	_, err = Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(&b))
 	require.NoError(err)
 
 	require.NoError(subA.Unsubscribe())
@@ -84,7 +84,7 @@ func TestUnsubscribeTwiceIsNoop(t *testing.T) {
 	require := require.New(t)
 	cq := newScopedEngine(t)
 
-	sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
+	sub, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
 	require.NoError(err)
 
 	require.NoError(sub.Unsubscribe())
@@ -99,7 +99,7 @@ func TestSubscribeNilCallbackFails(t *testing.T) {
 	require := require.New(t)
 	cq := newScopedEngine(t)
 
-	sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, nil)
+	sub, err := Subscribe[Event](cq, scopeBusHigh, scopeEvOrder, nil)
 	require.ErrorIs(err, ErrSubscriptionInvalid)
 	require.Nil(sub)
 	require.NoError(cq.Stop())

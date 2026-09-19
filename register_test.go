@@ -44,7 +44,7 @@ func TestPublishDeliversToAllBusesAndReportsFailures(t *testing.T) {
 	require.NoError(cq.Start())
 
 	var onLow int64
-	_, err = cq.Subscribe(scopeBusLow, scopeEvOrder, counterCallback(&onLow))
+	_, err = Subscribe(cq, scopeBusLow, scopeEvOrder, counterCallback(&onLow))
 	require.NoError(err)
 
 	err = cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))
