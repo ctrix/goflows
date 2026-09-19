@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -37,32 +38,34 @@ func newRequestEngine(t *testing.T, responder func(req Event, reply func(*scopeE
 // behind.
 func TestRequestTimeoutRemovesSubscription(t *testing.T) {
 	t.Parallel()
-	require := require.New(t)
-	cq := newRequestEngine(t, nil) // nobody answers
+	synctest.Test(t, func(t *testing.T) {
+		require := require.New(t)
+		cq := newRequestEngine(t, nil) // nobody answers
 
-	before := cq.countSubscriptions()
+		before := cq.countSubscriptions()
 
-	const n = 20
-	var wg sync.WaitGroup
-	errs := make(chan error, n)
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-			defer cancel()
-			_, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
-			errs <- err
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		require.ErrorIs(err, context.DeadlineExceeded)
-	}
+		const n = 20
+		var wg sync.WaitGroup
+		errs := make(chan error, n)
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+				defer cancel()
+				_, err := cq.Request(ctx, scopeBusHigh, newScopeEvent(scopeEvOrder), scopeEvReply)
+				errs <- err
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			require.ErrorIs(err, context.DeadlineExceeded)
+		}
 
-	require.Equal(before, cq.countSubscriptions(), "timed out requests leaked subscriptions")
-	require.NoError(cq.Stop())
+		require.Equal(before, cq.countSubscriptions(), "timed out requests leaked subscriptions")
+		require.NoError(cq.Stop())
+	})
 }
 
 // A request whose Publish fails must not leave its reply subscription behind.

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/require"
 )
@@ -82,33 +82,36 @@ func TestNamesAreKeptAndLogged(t *testing.T) {
 // with a buffer of one and a blocked subscriber, the third Publish blocks.
 func TestBufferSizeIsHonoured(t *testing.T) {
 	t.Parallel()
-	require := require.New(t)
-	cq := buildEngineWithBus(t, WithBufferSize(1))
+	synctest.Test(t, func(t *testing.T) {
+		require := require.New(t)
+		cq := buildEngineWithBus(t, WithBufferSize(1))
 
-	inside := make(chan struct{})
-	release := make(chan struct{})
-	var once sync.Once
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
-		once.Do(func() { close(inside) })
-		<-release
+		inside := make(chan struct{})
+		release := make(chan struct{})
+		var once sync.Once
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
+			once.Do(func() { close(inside) })
+			<-release
+		})
+		require.NoError(err)
+
+		require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))) // taken by the dispatcher, which blocks
+		<-inside
+		require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))) // fills the single buffer slot
+
+		third := make(chan error, 1)
+		go func() { third <- cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)) }()
+		synctest.Wait() // every goroutine is parked: the third Publish must be one of them
+		select {
+		case <-third:
+			t.Fatal("third Publish returned: the buffer is larger than requested")
+		default:
+		}
+
+		close(release)
+		require.NoError(<-third)
+		require.NoError(cq.Stop())
 	})
-	require.NoError(err)
-
-	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))) // taken by the dispatcher, which blocks
-	<-inside
-	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder))) // fills the single buffer slot
-
-	third := make(chan error, 1)
-	go func() { third <- cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)) }()
-	select {
-	case <-third:
-		t.Fatal("third Publish returned: the buffer is larger than requested")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	close(release)
-	require.NoError(<-third)
-	require.NoError(cq.Stop())
 }
 
 // Defaults: one partition, default buffer size, empty name.
