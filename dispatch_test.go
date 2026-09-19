@@ -163,3 +163,36 @@ func TestPublishConcurrentWithStopDoesNotPanic(t *testing.T) {
 		require.False(panicked.Load(), "Publish panicked during Stop")
 	}
 }
+
+// With several partitions the order across events is not guaranteed, but every
+// event must still reach each subscriber exactly once.
+func TestPartitionsDeliverEachEventOnce(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+	cq := buildEngineWithBus(t, WithPartitions(4))
+
+	var mu sync.Mutex
+	seen := map[string]int{}
+	for s := 0; s < 2; s++ {
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(ev Event) {
+			mu.Lock()
+			seen[ev.GetID()]++
+			mu.Unlock()
+		})
+		require.NoError(err)
+	}
+
+	const n = 200
+	ids := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		ev := newScopeEvent(scopeEvOrder)
+		ids = append(ids, ev.GetID())
+		require.NoError(cq.Publish(context.Background(), ev))
+	}
+	require.NoError(cq.Stop())
+
+	require.Len(seen, n)
+	for _, id := range ids {
+		require.Equal(2, seen[id], "each of the two subscribers sees every event once")
+	}
+}

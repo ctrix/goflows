@@ -31,13 +31,6 @@ func newTestEvent(typ EventType) *TestEvent {
 	return te
 }
 
-type TestEventHandler struct {
-}
-
-func (eh *TestEventHandler) Initialize() error {
-	return nil
-}
-
 func TestBasic(t *testing.T) {
 	t.Parallel()
 
