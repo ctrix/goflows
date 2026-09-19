@@ -19,27 +19,23 @@ const (
 	EventTypeInvalid = 0
 )
 
+// Sentinel errors. Compare with errors.Is: Publish may wrap them with the bus
+// they came from and join several.
 var (
-	EEventTypeExists               = errors.New("event type already exists")
-	EEventTypeInvalid              = errors.New("event type is invalid or unknown")
-	EEventRegistrationExists       = errors.New("event registration already exists")
-	EEventRegistrationDoesntExists = errors.New("event registration doesnt exists")
-	EEventTypeDoesntExists         = errors.New("event type does not exist")
-	EEventBusExists                = errors.New("event bus already exists")
-	EEventBusDoesntExists          = errors.New("event bus does not exists")
-	EEventBusInvalid               = errors.New("event bus is invalid")
-	EEventBusClosed                = errors.New("event bus is closed")
-	EEventNotRegisteredOnBus       = errors.New("event type is not registered on this bus")
-	EEventTypeMismatch             = errors.New("event type is bound to a different Go type")
-	EEventHandlerNull              = errors.New("event handler is null")
-	EEventHandlerRedefined         = errors.New("event handler is already set and cannot be redefined")
-	EEventHandlerInvalid           = errors.New("event handler is invalid")
-	EEventBusNotFound              = errors.New("corresponding event bus not found")
-	EOptionInvalid                 = errors.New("option value is invalid")
-	EEngineStarted                 = errors.New("engine already started")
-	EEngineStopped                 = errors.New("engine is stopped")
-	ESubscriptionInvalid           = errors.New("subscription request is invalid")
-	EUnsubscriptionInvalid         = errors.New("unsubscription request is invalid")
+	ErrTransportNil        = errors.New("transport is nil")
+	ErrBusInvalid          = errors.New("bus is invalid")
+	ErrBusExists           = errors.New("bus already exists")
+	ErrBusNotFound         = errors.New("bus does not exist")
+	ErrBusClosed           = errors.New("bus is closed")
+	ErrEventTypeInvalid    = errors.New("event type is invalid or unknown")
+	ErrEventTypeNotFound   = errors.New("event type is not registered")
+	ErrEventRegistered     = errors.New("event type is already registered on this bus")
+	ErrEventNotOnBus       = errors.New("event type is not registered on this bus")
+	ErrEventTypeMismatch   = errors.New("event type is bound to a different Go type")
+	ErrOptionInvalid       = errors.New("option value is invalid")
+	ErrEngineStarted       = errors.New("engine already started")
+	ErrEngineStopped       = errors.New("engine is stopped")
+	ErrSubscriptionInvalid = errors.New("subscription request is invalid")
 )
 
 // subscriptionKey identifies the set of subscribers listening for a given
@@ -114,7 +110,7 @@ func newBusConfig(opts ...BusOption) BusConfig {
 
 func (c BusConfig) validate() error {
 	if c.Partitions < 1 || c.BufferSize < 1 {
-		return EOptionInvalid
+		return ErrOptionInvalid
 	}
 	return nil
 }
@@ -130,7 +126,7 @@ type EventConfig struct {
 // OfType binds the event type being registered to the Go type T. Once bound,
 // registering the same event type with another Go type, publishing a value of
 // another Go type with that event type, or subscribing with [Subscribe] for
-// another T fails with EEventTypeMismatch. Use it so two packages that happen
+// another T fails with ErrEventTypeMismatch. Use it so two packages that happen
 // to pick the same EventType value fail loudly instead of receiving each
 // other's events.
 func OfType[T Event]() EventOption {
@@ -189,7 +185,7 @@ func (s *Subscription) Bus() EventBus { return s.key.btype }
 func (s *Subscription) Type() EventType { return s.key.etype }
 
 // Unsubscribe removes the subscription. It is idempotent: removing an already
-// removed subscription returns nil. After Stop it returns EEngineStopped.
+// removed subscription returns nil. After Stop it returns ErrEngineStopped.
 func (s *Subscription) Unsubscribe() error {
 	return s.engine.unsubscribe(s)
 }
@@ -197,7 +193,7 @@ func (s *Subscription) Unsubscribe() error {
 // BindContext removes the subscription when ctx is done, from a separate
 // goroutine as [context.AfterFunc] does. It returns s for chaining. A
 // subscription removed by hand first is left alone; an error from the late
-// Unsubscribe, such as EEngineStopped, is ignored.
+// Unsubscribe, such as ErrEngineStopped, is ignored.
 func (s *Subscription) BindContext(ctx context.Context) *Subscription {
 	context.AfterFunc(ctx, func() { _ = s.Unsubscribe() })
 	return s
@@ -246,7 +242,7 @@ func WithLogger(l *slog.Logger) EngineOption {
 // transport implements [LoggerSetter] it receives the engine logger.
 func NewEngine(eventh Transport, opts ...EngineOption) (*Engine, error) {
 	if eventh == nil {
-		return nil, EEventHandlerInvalid
+		return nil, ErrTransportNil
 	}
 
 	cfg := engineConfig{logger: slog.New(slog.DiscardHandler)}
@@ -269,10 +265,10 @@ func NewEngine(eventh Transport, opts ...EngineOption) (*Engine, error) {
 	return c, nil
 }
 
-// checkNotStopped returns EEngineStopped once Stop has been called.
+// checkNotStopped returns ErrEngineStopped once Stop has been called.
 func (c *Engine) checkNotStopped() error {
 	if engineState(c.state.Load()) == engineStopped {
-		return EEngineStopped
+		return ErrEngineStopped
 	}
 
 	return nil
@@ -281,7 +277,7 @@ func (c *Engine) checkNotStopped() error {
 func (c *Engine) busDispatcherRun(btype EventBus, cfg BusConfig) error {
 	ch, ok := c.transport.Stream(btype)
 	if !ok {
-		return EEventBusDoesntExists
+		return ErrBusNotFound
 	}
 
 	dis := &busDispatcher{
@@ -360,11 +356,11 @@ func (c *Engine) RegisterBus(btype EventBus, opts ...BusOption) error {
 	}
 
 	if btype == EventBusInvalid {
-		return EEventBusInvalid
+		return ErrBusInvalid
 	}
 
 	if c.transport == nil {
-		return EEventHandlerNull
+		return ErrTransportNil
 	}
 
 	cfg := newBusConfig(opts...)
@@ -387,11 +383,11 @@ func (c *Engine) RegisterEvent(btype EventBus, etype EventType, opts ...EventOpt
 	}
 
 	if etype == EventTypeInvalid {
-		return EEventTypeInvalid
+		return ErrEventTypeInvalid
 	}
 
 	if !c.transport.Has(btype) {
-		return EEventBusDoesntExists
+		return ErrBusNotFound
 	}
 
 	var cfg EventConfig
@@ -406,11 +402,11 @@ func (c *Engine) RegisterEvent(btype EventBus, etype EventType, opts ...EventOpt
 	reg := cur[etype]
 
 	if cfg.goType != nil && reg.goType != nil && reg.goType != cfg.goType {
-		return EEventTypeMismatch
+		return ErrEventTypeMismatch
 	}
 
 	if slices.Contains(reg.buses, btype) {
-		return EEventRegistrationExists
+		return ErrEventRegistered
 	}
 
 	// Never mutate the published snapshot: Publish may be reading it.
@@ -433,15 +429,15 @@ func (c *Engine) RegisterEvent(btype EventBus, etype EventType, opts ...EventOpt
 
 func (c *Engine) Start() error {
 	if c.transport == nil {
-		return EEventHandlerNull
+		return ErrTransportNil
 	}
 
 	if !c.state.CompareAndSwap(int32(engineCreated), int32(engineStarted)) {
 		switch engineState(c.state.Load()) {
 		case engineStopped:
-			return EEngineStopped
+			return ErrEngineStopped
 		default:
-			return EEngineStarted
+			return ErrEngineStarted
 		}
 	}
 
@@ -498,11 +494,11 @@ func (c *Engine) registration(etype EventType) (eventRegistration, bool) {
 	return reg, ok
 }
 
-// checkGoType returns EEventTypeMismatch when etype is bound with OfType to a
+// checkGoType returns ErrEventTypeMismatch when etype is bound with OfType to a
 // Go type other than got. An unbound etype accepts anything.
 func (c *Engine) checkGoType(etype EventType, got reflect.Type) error {
 	if reg, ok := c.registration(etype); ok && reg.goType != nil && reg.goType != got {
-		return EEventTypeMismatch
+		return ErrEventTypeMismatch
 	}
 	return nil
 }
@@ -517,16 +513,16 @@ func (c *Engine) eventName(etype EventType) string {
 // been registered on that specific bus.
 func (c *Engine) checkEventOnBus(btype EventBus, etype EventType) error {
 	if btype == EventBusInvalid || !c.transport.Has(btype) {
-		return EEventBusDoesntExists
+		return ErrBusNotFound
 	}
 
 	reg, ok := c.registration(etype)
 	if !ok {
-		return EEventTypeDoesntExists
+		return ErrEventTypeNotFound
 	}
 
 	if !slices.Contains(reg.buses, btype) {
-		return EEventNotRegisteredOnBus
+		return ErrEventNotOnBus
 	}
 
 	return nil
@@ -537,11 +533,11 @@ func (c *Engine) checkEventOnBus(btype EventBus, etype EventType) error {
 // registered on it. Every call creates a new subscription.
 func (c *Engine) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback) (*Subscription, error) {
 	if etype == EventTypeInvalid {
-		return nil, EEventTypeInvalid
+		return nil, ErrEventTypeInvalid
 	}
 
 	if cb == nil {
-		return nil, ESubscriptionInvalid
+		return nil, ErrSubscriptionInvalid
 	}
 
 	if err := c.checkNotStopped(); err != nil {
@@ -574,11 +570,11 @@ func (c *Engine) Subscribe(btype EventBus, etype EventType, cb EventSubscription
 
 // Subscribe is the typed form of [Engine.Subscribe]: fn receives the event as
 // T, no type assertion needed. If etype is bound with [OfType] to a type
-// other than T the call fails with EEventTypeMismatch. If it is not bound, an
+// other than T the call fails with ErrEventTypeMismatch. If it is not bound, an
 // event that is not a T is logged and skipped.
 func Subscribe[T Event](c *Engine, btype EventBus, etype EventType, fn func(T)) (*Subscription, error) {
 	if fn == nil {
-		return nil, ESubscriptionInvalid
+		return nil, ErrSubscriptionInvalid
 	}
 
 	want := reflect.TypeFor[T]()
@@ -597,7 +593,7 @@ func Subscribe[T Event](c *Engine, btype EventBus, etype EventType, fn func(T)) 
 }
 
 // Request is the typed form of [Engine.Request]: the reply is returned as T. A
-// reply of another Go type fails with EEventTypeMismatch.
+// reply of another Go type fails with ErrEventTypeMismatch.
 func Request[T Event](ctx context.Context, c *Engine, btype EventBus, ev Event, retet EventType) (T, error) {
 	var zero T
 
@@ -608,7 +604,7 @@ func Request[T Event](ctx context.Context, c *Engine, btype EventBus, ev Event, 
 
 	t, ok := res.(T)
 	if !ok {
-		return zero, EEventTypeMismatch
+		return zero, ErrEventTypeMismatch
 	}
 
 	return t, nil
@@ -648,7 +644,7 @@ func (c *Engine) unsubscribe(sub *Subscription) error {
 func (c *Engine) GetBusTypeFromEventType(etype EventType) ([]EventBus, error) {
 	reg, ok := c.registration(etype)
 	if !ok {
-		return nil, EEventTypeInvalid
+		return nil, ErrEventTypeInvalid
 	}
 
 	return reg.buses, nil
@@ -675,11 +671,11 @@ func (c *Engine) Publish(ctx context.Context, ev Event) error {
 	// One registry load serves both the Go type check and the bus list.
 	reg, ok := c.registration(ev.GetType())
 	if !ok {
-		return EEventTypeInvalid
+		return ErrEventTypeInvalid
 	}
 
 	if reg.goType != nil && reg.goType != reflect.TypeOf(ev) {
-		return EEventTypeMismatch
+		return ErrEventTypeMismatch
 	}
 
 	buslist := reg.buses

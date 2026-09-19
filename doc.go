@@ -25,7 +25,7 @@
 //	// subscription to a request or session lifetime
 //
 // [OfType] binds an EventType value to one Go type: publishing or subscribing
-// with another type for that value fails with EEventTypeMismatch, so two
+// with another type for that value fails with ErrEventTypeMismatch, so two
 // packages that pick the same number do not silently receive each other's
 // events. cq.Subscribe with a func(goflows.Event) is the untyped form.
 //

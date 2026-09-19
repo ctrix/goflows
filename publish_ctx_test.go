@@ -43,7 +43,7 @@ func TestSelfPublishOnFullBusHonoursContext(t *testing.T) {
 		close(bufferFull)
 
 		// Wait for the inner Publish to give up on its own before stopping: Stop
-		// would otherwise release it early with EEventBusClosed.
+		// would otherwise release it early with ErrBusClosed.
 		<-innerDone
 		require.NoError(cq.Stop())
 

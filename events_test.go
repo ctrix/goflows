@@ -59,7 +59,7 @@ func TestPublishUntypedEventFails(t *testing.T) {
 
 	e := &untypedEvent{}
 	require.Equal(EventType(EventTypeInvalid), e.GetType())
-	require.ErrorIs(cq.Publish(context.Background(), e), EEventTypeInvalid)
+	require.ErrorIs(cq.Publish(context.Background(), e), ErrEventTypeInvalid)
 
 	require.NoError(cq.Stop())
 	require.Equal(int64(0), got, "an untyped event must not be routed anywhere")

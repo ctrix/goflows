@@ -55,10 +55,10 @@ func TestSubscribeAfterStopFails(t *testing.T) {
 		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(new(int64)))
 		return err
 	})
-	require.ErrorIs(err, EEngineStopped)
+	require.ErrorIs(err, ErrEngineStopped)
 
 	err = callOrTimeout(t, "Unsubscribe after Stop", sub.Unsubscribe)
-	require.ErrorIs(err, EEngineStopped)
+	require.ErrorIs(err, ErrEngineStopped)
 }
 
 func TestPublishAfterStopFails(t *testing.T) {
@@ -69,7 +69,7 @@ func TestPublishAfterStopFails(t *testing.T) {
 
 	var err error
 	require.NotPanics(func() { err = cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)) })
-	require.ErrorIs(err, EEngineStopped)
+	require.ErrorIs(err, ErrEngineStopped)
 }
 
 func TestRegisterAfterStopFails(t *testing.T) {
@@ -78,8 +78,8 @@ func TestRegisterAfterStopFails(t *testing.T) {
 	cq := newScopedEngine(t)
 	require.NoError(cq.Stop())
 
-	require.ErrorIs(cq.RegisterBus(scopeBusGhost), EEngineStopped)
-	require.ErrorIs(cq.RegisterEvent(scopeBusHigh, scopeEvOrder+1), EEngineStopped)
+	require.ErrorIs(cq.RegisterBus(scopeBusGhost), ErrEngineStopped)
+	require.ErrorIs(cq.RegisterEvent(scopeBusHigh, scopeEvOrder+1), ErrEngineStopped)
 }
 
 func TestStopBeforeStartDoesNotPanic(t *testing.T) {
@@ -92,7 +92,7 @@ func TestStopBeforeStartDoesNotPanic(t *testing.T) {
 	require.NoError(err)
 
 	// Once stopped, the engine stays stopped.
-	require.ErrorIs(cq.Start(), EEngineStopped)
+	require.ErrorIs(cq.Start(), ErrEngineStopped)
 }
 
 func TestStopTwiceDoesNotPanic(t *testing.T) {
@@ -112,7 +112,7 @@ func TestStartTwiceFails(t *testing.T) {
 	require := require.New(t)
 	cq := newScopedEngine(t)
 
-	require.ErrorIs(cq.Start(), EEngineStarted)
+	require.ErrorIs(cq.Start(), ErrEngineStarted)
 	require.NoError(cq.Stop())
 }
 

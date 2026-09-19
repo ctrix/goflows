@@ -100,7 +100,7 @@ func TestSubscribeNilCallbackFails(t *testing.T) {
 	cq := newScopedEngine(t)
 
 	sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, nil)
-	require.ErrorIs(err, ESubscriptionInvalid)
+	require.ErrorIs(err, ErrSubscriptionInvalid)
 	require.Nil(sub)
 	require.NoError(cq.Stop())
 }

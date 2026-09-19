@@ -123,9 +123,9 @@ func TestPartitionsOptionValidation(t *testing.T) {
 	cq, err := NewEngine(eh)
 	require.NoError(err)
 
-	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(0)), EOptionInvalid)
-	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(-3)), EOptionInvalid)
-	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithBufferSize(0)), EOptionInvalid)
+	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(0)), ErrOptionInvalid)
+	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(-3)), ErrOptionInvalid)
+	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithBufferSize(0)), ErrOptionInvalid)
 	require.False(cq.transport.Has(scopeBusHigh), "a rejected bus must not be created")
 	require.NoError(cq.Stop())
 }

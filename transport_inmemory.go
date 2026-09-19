@@ -12,7 +12,7 @@ const InMemoryTransportName = "inmemory"
 
 // inMemoryBus is a bounded queue of events. The channel is never closed:
 // publishers select on it together with done and the caller context, so a
-// Publish racing with Stop returns EEventBusClosed instead of panicking on a
+// Publish racing with Stop returns ErrBusClosed instead of panicking on a
 // closed channel, and a Publish on a full bus gives up when ctx is done.
 type inMemoryBus struct {
 	btype  EventBus
@@ -31,7 +31,7 @@ func newInMemoryBus(btype EventBus, size int) *inMemoryBus {
 
 func (b *inMemoryBus) publish(ctx context.Context, ev Event) error {
 	if b.closed.Load() {
-		return EEventBusClosed
+		return ErrBusClosed
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -42,7 +42,7 @@ func (b *inMemoryBus) publish(ctx context.Context, ev Event) error {
 	case b.ch <- ev:
 		return nil
 	case <-b.done:
-		return EEventBusClosed
+		return ErrBusClosed
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -83,11 +83,11 @@ func (eh *InMemoryTransport) log() *slog.Logger {
 
 func (eh *InMemoryTransport) Open(btype EventBus, cfg BusConfig) error {
 	if eh.Has(btype) {
-		return EEventBusExists
+		return ErrBusExists
 	}
 
 	if cfg.BufferSize < 1 {
-		return EOptionInvalid
+		return ErrOptionInvalid
 	}
 
 	bus := newInMemoryBus(btype, cfg.BufferSize)
@@ -95,7 +95,7 @@ func (eh *InMemoryTransport) Open(btype EventBus, cfg BusConfig) error {
 	eh.log().Debug("registering event bus", "bus-type", btype, "bus-name", cfg.Name, "buffer-size", cfg.BufferSize)
 
 	if _, loaded := eh.inputs.LoadOrStore(btype, bus); loaded {
-		return EEventBusExists
+		return ErrBusExists
 	}
 
 	return nil
@@ -121,7 +121,7 @@ func (eh *InMemoryTransport) Stream(btype EventBus) (<-chan Event, bool) {
 func (eh *InMemoryTransport) Publish(ctx context.Context, btype EventBus, ev Event) error {
 	abus, ok := eh.inputs.Load(btype)
 	if !ok {
-		return EEventBusDoesntExists
+		return ErrBusNotFound
 	}
 
 	return abus.(*inMemoryBus).publish(ctx, ev)

@@ -47,7 +47,7 @@ func TestOfTypeRejectsConflictingBinding(t *testing.T) {
 	require.NoError(cq.RegisterEvent(scopeBusLow, scopeEvOrder, OfType[*orderPlaced]()))
 	// a different Go type for the same event type is not
 	require.ErrorIs(cq.RegisterEvent(scopeBusLow, scopeEvOrder+1, OfType[*orderShipped]()), nil)
-	require.ErrorIs(cq.RegisterEvent(scopeBusLow, scopeEvOrder, OfType[*orderShipped]()), EEventTypeMismatch)
+	require.ErrorIs(cq.RegisterEvent(scopeBusLow, scopeEvOrder, OfType[*orderShipped]()), ErrEventTypeMismatch)
 	require.NoError(cq.Stop())
 }
 
@@ -62,7 +62,7 @@ func TestPublishRejectsWrongGoType(t *testing.T) {
 	require.NoError(err)
 
 	impostor := &orderShipped{BaseEvent: NewBaseEvent(scopeEvOrder)} // claims scopeEvOrder
-	require.ErrorIs(cq.Publish(context.Background(), impostor), EEventTypeMismatch)
+	require.ErrorIs(cq.Publish(context.Background(), impostor), ErrEventTypeMismatch)
 	require.NoError(cq.Publish(context.Background(), newOrderPlaced(1)))
 
 	require.NoError(cq.Stop())
@@ -96,7 +96,7 @@ func TestTypedSubscribeRejectsWrongGoType(t *testing.T) {
 	cq := typedEngine(t)
 
 	sub, err := Subscribe(cq, scopeBusHigh, scopeEvOrder, func(*orderShipped) {})
-	require.ErrorIs(err, EEventTypeMismatch)
+	require.ErrorIs(err, ErrEventTypeMismatch)
 	require.Nil(sub)
 	require.NoError(cq.Stop())
 }

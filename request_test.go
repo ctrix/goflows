@@ -79,7 +79,7 @@ func TestRequestPublishErrorRemovesSubscription(t *testing.T) {
 	// This event type is not registered anywhere: Publish must fail fast.
 	const unregistered EventType = 9999
 	_, err := cq.Request(context.Background(), scopeBusHigh, newScopeEvent(unregistered), scopeEvReply)
-	require.ErrorIs(err, EEventTypeInvalid)
+	require.ErrorIs(err, ErrEventTypeInvalid)
 
 	require.Equal(before, cq.countSubscriptions(), "failed request leaked its subscription")
 	require.NoError(cq.Stop())

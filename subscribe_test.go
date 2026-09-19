@@ -106,7 +106,7 @@ func TestSubscribeOnUnregisteredBusFails(t *testing.T) {
 
 	var got int64
 	_, err := cq.Subscribe(scopeBusGhost, scopeEvOrder, counterCallback(&got))
-	require.ErrorIs(err, EEventBusDoesntExists)
+	require.ErrorIs(err, ErrBusNotFound)
 
 	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.NoError(cq.Stop())
@@ -123,7 +123,7 @@ func TestSubscribeOnBusWithoutThatEventFails(t *testing.T) {
 
 	var got int64
 	_, err := cq.Subscribe(scopeBusLow, scopeEvOnlyHigh, counterCallback(&got))
-	require.ErrorIs(err, EEventNotRegisteredOnBus)
+	require.ErrorIs(err, ErrEventNotOnBus)
 
 	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOnlyHigh)))
 	require.NoError(cq.Stop())

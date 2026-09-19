@@ -11,7 +11,7 @@ import (
 type Transport interface {
 	// Name identifies the transport in logs.
 	Name() string
-	// Open creates the bus. It fails with EEventBusExists if it is already
+	// Open creates the bus. It fails with ErrBusExists if it is already
 	// open.
 	Open(bus EventBus, cfg BusConfig) error
 	// Has reports whether the bus is open.
@@ -20,9 +20,9 @@ type Transport interface {
 	// channel may stay open after Close: the engine stops reading on its own.
 	Stream(bus EventBus) (<-chan Event, bool)
 	// Publish enqueues ev on bus. It may block while the bus is full and must
-	// return ctx.Err() once ctx is done, and EEventBusClosed after Close.
+	// return ctx.Err() once ctx is done, and ErrBusClosed after Close.
 	Publish(ctx context.Context, bus EventBus, ev Event) error
-	// Close releases publishers blocked on a full bus with EEventBusClosed
+	// Close releases publishers blocked on a full bus with ErrBusClosed
 	// and stops accepting events. Events already queued must stay readable
 	// from Stream so the engine can drain them.
 	Close() error
