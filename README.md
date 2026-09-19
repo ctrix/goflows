@@ -108,8 +108,11 @@ func main() {
 - N partitions: up to N events in flight, no ordering across events. Each
   event still reaches its subscribers sequentially.
 - A subscriber that panics is logged and skipped. The bus keeps running.
-- The in-memory transport is a bounded queue. `Publish(ctx, ev)` blocks while
-  the bus is full until `ctx` is done, then returns `ctx.Err()`. A subscriber
+- Whether `Publish` blocks is a property of the transport, not of the engine:
+  the engine keeps no queue of its own and adds no waiting. The in-memory
+  transport is a bounded queue, so `Publish(ctx, ev)` blocks while the bus is
+  full until `ctx` is done, then returns `ctx.Err()`. A broker transport with
+  an asynchronous producer returns at once. A subscriber
   publishing synchronously on its own bus stalls the dispatcher while the bus
   is full: give that `Publish` a deadline, use a different bus for replies, or
   publish asynchronously.

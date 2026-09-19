@@ -19,8 +19,10 @@ type Transport interface {
 	// Stream returns the channel the engine reads events for bus from. The
 	// channel may stay open after Close: the engine stops reading on its own.
 	Stream(bus EventBus) (<-chan Event, bool)
-	// Publish enqueues ev on bus. It may block while the bus is full and must
-	// return ctx.Err() once ctx is done, and ErrBusClosed after Close.
+	// Publish enqueues ev on bus. Whether it blocks is up to the transport:
+	// a bounded queue blocks while full and must return ctx.Err() once ctx
+	// is done; an asynchronous producer returns at once and reports delivery
+	// failures elsewhere. After Close it returns ErrBusClosed.
 	Publish(ctx context.Context, bus EventBus, ev Event) error
 	// Close releases publishers blocked on a full bus with ErrBusClosed
 	// and stops accepting events. Events already queued must stay readable
