@@ -61,7 +61,7 @@ func TestNamesAreKeptAndLogged(t *testing.T) {
 	require := require.New(t)
 
 	rec := newRecordingHandler()
-	cq, err := NewCQRSEngine(new(InMemoryTransport), WithLogger(slog.New(rec)))
+	cq, err := NewEngine(new(InMemoryTransport), WithLogger(slog.New(rec)))
 	require.NoError(err)
 
 	require.NoError(cq.RegisterBus(scopeBusHigh, WithBusName("orders")))

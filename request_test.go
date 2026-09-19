@@ -15,7 +15,7 @@ const scopeEvReply EventType = 600
 // newRequestEngine registers scopeEvOrder (the request) and scopeEvReply (the
 // reply) on scopeBusHigh. If responder is not nil it is subscribed to the
 // request type and called with a reply function.
-func newRequestEngine(t *testing.T, responder func(req Event, reply func(*scopeEvent))) *CQRS {
+func newRequestEngine(t *testing.T, responder func(req Event, reply func(*scopeEvent))) *Engine {
 	t.Helper()
 	require := require.New(t)
 	cq := newScopedEngine(t)

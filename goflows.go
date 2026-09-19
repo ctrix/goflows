@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LIBRARY_NAME     = "CQRS"
+	libraryName      = "goflows"
 	EventBusInvalid  = 0
 	EventTypeInvalid = 0
 )
@@ -50,13 +50,13 @@ type subscriptionKey struct {
 	etype EventType
 }
 
-// BusDispatcher consumes one bus and delivers each event to its subscribers.
+// busDispatcher consumes one bus and delivers each event to its subscribers.
 // It runs `partitions` worker goroutines over the same channel: with one
 // partition delivery is sequential and in publish order; with more, up to
 // that many events are delivered concurrently and order across events is not
 // guaranteed. A single event is always delivered to its subscribers one after
 // the other, in subscription order.
-type BusDispatcher struct {
+type busDispatcher struct {
 	btype EventBus
 	cfg   BusConfig
 	ch    <-chan Event
@@ -145,7 +145,7 @@ func WithEventName(name string) EventOption {
 	return func(c *EventConfig) { c.Name = name }
 }
 
-// engineState is the lifecycle of a CQRS engine: created -> started -> stopped.
+// engineState is the lifecycle of an Engine: created -> started -> stopped.
 // Registration and subscription work in both created and started; nothing
 // works once stopped.
 type engineState int32
@@ -177,7 +177,7 @@ type subscriptionMap map[subscriptionKey][]*Subscription
 // creates a distinct subscription, even for the same callback; identity is the
 // handle itself, which is what Unsubscribe removes.
 type Subscription struct {
-	engine *CQRS
+	engine *Engine
 	key    subscriptionKey
 	cb     EventSubscriptionCallback
 }
@@ -203,7 +203,7 @@ func (s *Subscription) BindContext(ctx context.Context) *Subscription {
 	return s
 }
 
-type CQRS struct {
+type Engine struct {
 	logger *slog.Logger
 
 	transport Transport
@@ -218,7 +218,7 @@ type CQRS struct {
 	subMu         sync.Mutex // serialises writers only
 	subscriptions atomic.Pointer[subscriptionMap]
 
-	subDispatchers sync.Map // this is a map[btype]*BusDispatcher
+	subDispatchers sync.Map // this is a map[btype]*busDispatcher
 
 	// stopCh is closed by Stop once the transport has been stopped. Dispatchers
 	// then drain what is still buffered and exit.
@@ -242,9 +242,9 @@ func WithLogger(l *slog.Logger) EngineOption {
 	}
 }
 
-// NewCQRSEngine builds an engine on top of the given transport. If the
+// NewEngine builds an engine on top of the given transport. If the
 // transport implements [LoggerSetter] it receives the engine logger.
-func NewCQRSEngine(eventh Transport, opts ...EngineOption) (*CQRS, error) {
+func NewEngine(eventh Transport, opts ...EngineOption) (*Engine, error) {
 	if eventh == nil {
 		return nil, EEventHandlerInvalid
 	}
@@ -254,8 +254,8 @@ func NewCQRSEngine(eventh Transport, opts ...EngineOption) (*CQRS, error) {
 		opt(&cfg)
 	}
 
-	c := &CQRS{
-		logger:    cfg.logger.With("library", LIBRARY_NAME),
+	c := &Engine{
+		logger:    cfg.logger.With("library", libraryName),
 		transport: eventh,
 		stopCh:    make(chan struct{}),
 	}
@@ -270,7 +270,7 @@ func NewCQRSEngine(eventh Transport, opts ...EngineOption) (*CQRS, error) {
 }
 
 // checkNotStopped returns EEngineStopped once Stop has been called.
-func (c *CQRS) checkNotStopped() error {
+func (c *Engine) checkNotStopped() error {
 	if engineState(c.state.Load()) == engineStopped {
 		return EEngineStopped
 	}
@@ -278,13 +278,13 @@ func (c *CQRS) checkNotStopped() error {
 	return nil
 }
 
-func (c *CQRS) busDispatcherRun(btype EventBus, cfg BusConfig) error {
+func (c *Engine) busDispatcherRun(btype EventBus, cfg BusConfig) error {
 	ch, ok := c.transport.Stream(btype)
 	if !ok {
 		return EEventBusDoesntExists
 	}
 
-	dis := &BusDispatcher{
+	dis := &busDispatcher{
 		btype: btype,
 		cfg:   cfg,
 		ch:    ch,
@@ -304,7 +304,7 @@ func (c *CQRS) busDispatcherRun(btype EventBus, cfg BusConfig) error {
 
 // dispatchLoop is one partition of a bus dispatcher. It exits when the
 // transport closes the channel or, after Stop, once the channel is drained.
-func (c *CQRS) dispatchLoop(d *BusDispatcher) {
+func (c *Engine) dispatchLoop(d *busDispatcher) {
 	defer d.wg.Done()
 
 	for {
@@ -332,7 +332,7 @@ func (c *CQRS) dispatchLoop(d *BusDispatcher) {
 
 // deliver hands ev to every subscriber of (btype, type of ev). A panicking
 // subscriber is logged and skipped; it never affects the others or the bus.
-func (c *CQRS) deliver(btype EventBus, ev Event) {
+func (c *Engine) deliver(btype EventBus, ev Event) {
 	subs := c.subscribersFor(btype, ev.GetType())
 	if len(subs) == 0 {
 		c.logger.Debug("no subscriptions found for event on bus", "bus-type", btype, "event-type", ev.GetType(), "event-id", ev.GetID())
@@ -344,7 +344,7 @@ func (c *CQRS) deliver(btype EventBus, ev Event) {
 	}
 }
 
-func (c *CQRS) safeCall(sub *Subscription, ev Event) {
+func (c *Engine) safeCall(sub *Subscription, ev Event) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.logger.Error("subscriber panicked", "bus-type", sub.key.btype, "event-type", ev.GetType(), "event-name", c.eventName(ev.GetType()), "event-id", ev.GetID(), "panic", r, "stack", string(debug.Stack()))
@@ -354,7 +354,7 @@ func (c *CQRS) safeCall(sub *Subscription, ev Event) {
 	sub.cb(ev)
 }
 
-func (c *CQRS) RegisterBus(btype EventBus, opts ...BusOption) error {
+func (c *Engine) RegisterBus(btype EventBus, opts ...BusOption) error {
 	if err := c.checkNotStopped(); err != nil {
 		return err
 	}
@@ -381,7 +381,7 @@ func (c *CQRS) RegisterBus(btype EventBus, opts ...BusOption) error {
 	return c.busDispatcherRun(btype, cfg)
 }
 
-func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOption) error {
+func (c *Engine) RegisterEvent(btype EventBus, etype EventType, opts ...EventOption) error {
 	if err := c.checkNotStopped(); err != nil {
 		return err
 	}
@@ -431,7 +431,7 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOptio
 	return nil
 }
 
-func (c *CQRS) Start() error {
+func (c *Engine) Start() error {
 	if c.transport == nil {
 		return EEventHandlerNull
 	}
@@ -445,7 +445,7 @@ func (c *CQRS) Start() error {
 		}
 	}
 
-	c.logger.Debug("starting CQRS engine")
+	c.logger.Debug("starting engine")
 
 	return nil
 }
@@ -454,7 +454,7 @@ func (c *CQRS) Start() error {
 // events already published. It can be called in any state and is idempotent:
 // the second and later calls return nil without doing anything. An error from
 // the transport Close is returned after the drain.
-func (c *CQRS) Stop() error {
+func (c *Engine) Stop() error {
 	if engineState(c.state.Swap(int32(engineStopped))) == engineStopped {
 		return nil
 	}
@@ -465,18 +465,18 @@ func (c *CQRS) Stop() error {
 	close(c.stopCh)
 
 	c.subDispatchers.Range(func(k, v interface{}) bool {
-		d := v.(*BusDispatcher)
+		d := v.(*busDispatcher)
 		d.wg.Wait()
 		return true
 	})
 
-	c.logger.Debug("CQRS engine stopped")
+	c.logger.Debug("engine stopped")
 
 	return closeErr
 }
 
 // This function is used only in tests
-func (c *CQRS) countSubscriptions() int64 {
+func (c *Engine) countSubscriptions() int64 {
 	var n int64
 	for _, subs := range *c.subscriptions.Load() {
 		n += int64(len(subs))
@@ -487,20 +487,20 @@ func (c *CQRS) countSubscriptions() int64 {
 
 // subscribersFor returns the current subscriber list for (btype, etype). Both
 // the map and the slice are immutable snapshots, so no lock is needed.
-func (c *CQRS) subscribersFor(btype EventBus, etype EventType) []*Subscription {
+func (c *Engine) subscribersFor(btype EventBus, etype EventType) []*Subscription {
 	return (*c.subscriptions.Load())[subscriptionKey{btype: btype, etype: etype}]
 }
 
 // registration returns the current registration of etype, if any. The value
 // is an immutable snapshot: safe to read without a lock.
-func (c *CQRS) registration(etype EventType) (eventRegistration, bool) {
+func (c *Engine) registration(etype EventType) (eventRegistration, bool) {
 	reg, ok := (*c.events.Load())[etype]
 	return reg, ok
 }
 
 // checkGoType returns EEventTypeMismatch when etype is bound with OfType to a
 // Go type other than got. An unbound etype accepts anything.
-func (c *CQRS) checkGoType(etype EventType, got reflect.Type) error {
+func (c *Engine) checkGoType(etype EventType, got reflect.Type) error {
 	if reg, ok := c.registration(etype); ok && reg.goType != nil && reg.goType != got {
 		return EEventTypeMismatch
 	}
@@ -508,14 +508,14 @@ func (c *CQRS) checkGoType(etype EventType, got reflect.Type) error {
 }
 
 // eventName returns the label given with WithEventName, or "" if none.
-func (c *CQRS) eventName(etype EventType) string {
+func (c *Engine) eventName(etype EventType) string {
 	reg, _ := c.registration(etype)
 	return reg.name
 }
 
 // checkEventOnBus verifies that btype is a registered bus and that etype has
 // been registered on that specific bus.
-func (c *CQRS) checkEventOnBus(btype EventBus, etype EventType) error {
+func (c *Engine) checkEventOnBus(btype EventBus, etype EventType) error {
 	if btype == EventBusInvalid || !c.transport.Has(btype) {
 		return EEventBusDoesntExists
 	}
@@ -535,7 +535,7 @@ func (c *CQRS) checkEventOnBus(btype EventBus, etype EventType) error {
 // Subscribe registers cb for events of type etype travelling on bus btype and
 // returns a handle to remove it. The bus must exist and etype must be
 // registered on it. Every call creates a new subscription.
-func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback) (*Subscription, error) {
+func (c *Engine) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCallback) (*Subscription, error) {
 	if etype == EventTypeInvalid {
 		return nil, EEventTypeInvalid
 	}
@@ -572,11 +572,11 @@ func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCa
 	return sub, nil
 }
 
-// Subscribe is the typed form of [CQRS.Subscribe]: fn receives the event as
+// Subscribe is the typed form of [Engine.Subscribe]: fn receives the event as
 // T, no type assertion needed. If etype is bound with [OfType] to a type
 // other than T the call fails with EEventTypeMismatch. If it is not bound, an
 // event that is not a T is logged and skipped.
-func Subscribe[T Event](c *CQRS, btype EventBus, etype EventType, fn func(T)) (*Subscription, error) {
+func Subscribe[T Event](c *Engine, btype EventBus, etype EventType, fn func(T)) (*Subscription, error) {
 	if fn == nil {
 		return nil, ESubscriptionInvalid
 	}
@@ -596,9 +596,9 @@ func Subscribe[T Event](c *CQRS, btype EventBus, etype EventType, fn func(T)) (*
 	})
 }
 
-// Request is the typed form of [CQRS.Request]: the reply is returned as T. A
+// Request is the typed form of [Engine.Request]: the reply is returned as T. A
 // reply of another Go type fails with EEventTypeMismatch.
-func Request[T Event](ctx context.Context, c *CQRS, btype EventBus, ev Event, retet EventType) (T, error) {
+func Request[T Event](ctx context.Context, c *Engine, btype EventBus, ev Event, retet EventType) (T, error) {
 	var zero T
 
 	res, err := c.Request(ctx, btype, ev, retet)
@@ -614,7 +614,7 @@ func Request[T Event](ctx context.Context, c *CQRS, btype EventBus, ev Event, re
 	return t, nil
 }
 
-func (c *CQRS) unsubscribe(sub *Subscription) error {
+func (c *Engine) unsubscribe(sub *Subscription) error {
 	if err := c.checkNotStopped(); err != nil {
 		return err
 	}
@@ -645,7 +645,7 @@ func (c *CQRS) unsubscribe(sub *Subscription) error {
 
 // GetBusTypeFromEventType returns the buses etype is registered on. The slice
 // is an immutable snapshot and must not be modified.
-func (c *CQRS) GetBusTypeFromEventType(etype EventType) ([]EventBus, error) {
+func (c *Engine) GetBusTypeFromEventType(etype EventType) ([]EventBus, error) {
 	reg, ok := c.registration(etype)
 	if !ok {
 		return nil, EEventTypeInvalid
@@ -654,7 +654,7 @@ func (c *CQRS) GetBusTypeFromEventType(etype EventType) ([]EventBus, error) {
 	return reg.buses, nil
 }
 
-func (c *CQRS) GetBusTypeFromEvent(ev Event) ([]EventBus, error) {
+func (c *Engine) GetBusTypeFromEvent(ev Event) ([]EventBus, error) {
 	etype := ev.GetType()
 	return c.GetBusTypeFromEventType(etype)
 }
@@ -663,7 +663,7 @@ func (c *CQRS) GetBusTypeFromEvent(ev Event) ([]EventBus, error) {
 // a bus is full, until ctx is done: the transport returns ctx.Err() in that
 // case. Use a context with a deadline when publishing from inside a subscriber
 // of the same bus, otherwise a full bus deadlocks the dispatcher.
-func (c *CQRS) Publish(ctx context.Context, ev Event) error {
+func (c *Engine) Publish(ctx context.Context, ev Event) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -702,7 +702,7 @@ func (c *CQRS) Publish(ctx context.Context, ev Event) error {
 // ctx.Err(): context.DeadlineExceeded for a timeout, context.Canceled for an
 // external cancellation. The temporary reply subscription is always removed
 // before returning.
-func (c *CQRS) Request(ctx context.Context, btype EventBus, ev Event, retet EventType) (Event, error) {
+func (c *Engine) Request(ctx context.Context, btype EventBus, ev Event, retet EventType) (Event, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

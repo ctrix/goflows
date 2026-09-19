@@ -28,7 +28,7 @@ func TestTransportWithoutSetLogger(t *testing.T) {
 	require := require.New(t)
 
 	rec := newRecordingHandler()
-	cq, err := NewCQRSEngine(&bareTransport{}, WithLogger(slog.New(rec)))
+	cq, err := NewEngine(&bareTransport{}, WithLogger(slog.New(rec)))
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOrder))
@@ -41,7 +41,7 @@ func TestTransportWithoutSetLogger(t *testing.T) {
 	require.NoError(cq.Stop())
 
 	require.Equal(int64(1), got)
-	_, ok := rec.find("library", LIBRARY_NAME)
+	_, ok := rec.find("library", libraryName)
 	require.True(ok, "engine still logs with the given logger")
 }
 
@@ -63,7 +63,7 @@ func TestStopReturnsTransportCloseError(t *testing.T) {
 	require := require.New(t)
 
 	boom := errors.New("broker unreachable")
-	cq, err := NewCQRSEngine(&closeFailingTransport{err: boom})
+	cq, err := NewEngine(&closeFailingTransport{err: boom})
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOrder))

@@ -33,7 +33,7 @@ func TestPublishDeliversToAllBusesAndReportsFailures(t *testing.T) {
 	boom := errors.New("high bus is down")
 	eh := &failingBusTransport{Transport: new(InMemoryTransport), failOn: scopeBusHigh, err: boom}
 
-	cq, err := NewCQRSEngine(eh)
+	cq, err := NewEngine(eh)
 	require.NoError(err)
 
 	// Registration order matters: the failing bus comes first.
@@ -63,7 +63,7 @@ func TestRegisterEventConcurrentSameType(t *testing.T) {
 	const buses = 16
 	for round := 0; round < 20; round++ {
 		eh := new(InMemoryTransport)
-		cq, err := NewCQRSEngine(eh)
+		cq, err := NewEngine(eh)
 		require.NoError(err)
 
 		for i := 0; i < buses; i++ {

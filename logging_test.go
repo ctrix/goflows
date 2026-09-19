@@ -26,7 +26,7 @@ func TestDefaultLoggerIsSilent(t *testing.T) {
 	done := make(chan struct{})
 	go func() { _, _ = io.Copy(&buf, r); close(done) }()
 
-	cq, err := NewCQRSEngine(new(InMemoryTransport))
+	cq, err := NewEngine(new(InMemoryTransport))
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh, WithBusName("orders")))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOrder, WithEventName("order")))
@@ -51,11 +51,11 @@ func TestWithLoggerReachesEngineAndTransport(t *testing.T) {
 	require := require.New(t)
 
 	rec := newRecordingHandler()
-	cq, err := NewCQRSEngine(new(InMemoryTransport), WithLogger(slog.New(rec)))
+	cq, err := NewEngine(new(InMemoryTransport), WithLogger(slog.New(rec)))
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 
-	_, ok := rec.find("library", LIBRARY_NAME)
+	_, ok := rec.find("library", libraryName)
 	require.True(ok, "engine records must carry the library attribute")
 	_, ok = rec.find("transport", InMemoryTransportName)
 	require.True(ok, "transport records must carry the handler attribute")
@@ -68,7 +68,7 @@ func TestWithNilLoggerIsIgnored(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	cq, err := NewCQRSEngine(new(InMemoryTransport), WithLogger(nil))
+	cq, err := NewEngine(new(InMemoryTransport), WithLogger(nil))
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.Stop())

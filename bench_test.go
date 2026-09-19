@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-func benchEngine(b *testing.B) *CQRS {
+func benchEngine(b *testing.B) *Engine {
 	b.Helper()
 	eh := new(InMemoryTransport)
-	cq, err := NewCQRSEngine(eh)
+	cq, err := NewEngine(eh)
 	if err != nil {
 		b.Fatal(err)
 	}

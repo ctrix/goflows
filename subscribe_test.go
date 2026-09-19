@@ -29,7 +29,7 @@ func newScopeEvent(t EventType) *scopeEvent {
 
 // newScopedEngine builds and starts an engine with two buses. scopeEvOrder is
 // registered on both buses, scopeEvOnlyHigh only on scopeBusHigh.
-func newScopedEngine(t *testing.T) *CQRS {
+func newScopedEngine(t *testing.T) *Engine {
 	t.Helper()
 	cq := buildScopedEngine(t)
 	require.NoError(t, cq.Start())
@@ -37,13 +37,13 @@ func newScopedEngine(t *testing.T) *CQRS {
 }
 
 // buildScopedEngine is newScopedEngine without the Start call.
-func buildScopedEngine(t *testing.T) *CQRS {
+func buildScopedEngine(t *testing.T) *Engine {
 	t.Helper()
 	require := require.New(t)
 
 	eh := new(InMemoryTransport)
 
-	cq, err := NewCQRSEngine(eh)
+	cq, err := NewEngine(eh)
 	require.NoError(err)
 
 	require.NoError(cq.RegisterBus(scopeBusHigh))

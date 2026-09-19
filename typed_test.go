@@ -25,10 +25,10 @@ func newOrderPlaced(amount int) *orderPlaced {
 }
 
 // typedEngine binds scopeEvOrder to *orderPlaced on scopeBusHigh.
-func typedEngine(t *testing.T, opts ...EngineOption) *CQRS {
+func typedEngine(t *testing.T, opts ...EngineOption) *Engine {
 	t.Helper()
 	require := require.New(t)
-	cq, err := NewCQRSEngine(new(InMemoryTransport), opts...)
+	cq, err := NewEngine(new(InMemoryTransport), opts...)
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.RegisterBus(scopeBusLow))
@@ -108,7 +108,7 @@ func TestTypedSubscribeUnboundSkipsOtherTypes(t *testing.T) {
 	require := require.New(t)
 
 	rec := newRecordingHandler()
-	cq, err := NewCQRSEngine(new(InMemoryTransport), WithLogger(slog.New(rec)))
+	cq, err := NewEngine(new(InMemoryTransport), WithLogger(slog.New(rec)))
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOrder)) // no OfType

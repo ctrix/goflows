@@ -12,13 +12,13 @@ import (
 
 // buildEngineWithBus returns a started engine with scopeEvOrder registered on
 // scopeBusHigh, which is created with the given options.
-func buildEngineWithBus(t *testing.T, opts ...BusOption) *CQRS {
+func buildEngineWithBus(t *testing.T, opts ...BusOption) *Engine {
 	t.Helper()
 	require := require.New(t)
 
 	eh := new(InMemoryTransport)
 
-	cq, err := NewCQRSEngine(eh)
+	cq, err := NewEngine(eh)
 	require.NoError(err)
 
 	require.NoError(cq.RegisterBus(scopeBusHigh, opts...))
@@ -120,7 +120,7 @@ func TestPartitionsOptionValidation(t *testing.T) {
 	require := require.New(t)
 
 	eh := new(InMemoryTransport)
-	cq, err := NewCQRSEngine(eh)
+	cq, err := NewEngine(eh)
 	require.NoError(err)
 
 	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(0)), EOptionInvalid)

@@ -46,7 +46,7 @@ type UserCreated struct {
 }
 
 func main() {
-	cq, err := goflows.NewCQRSEngine(
+	cq, err := goflows.NewEngine(
 		new(goflows.InMemoryTransport),
 		goflows.WithLogger(slog.Default()),
 	)
@@ -85,7 +85,7 @@ func main() {
 
 | Type | Role |
 | --- | --- |
-| `CQRS` | The engine. Owns buses, event registrations and subscriptions. |
+| `Engine` | The engine, built with `NewEngine`. Owns buses, event registrations and subscriptions. |
 | `EventBus` | Identifier of a bus. Buses are registered with `RegisterBus`. |
 | `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
 | `Event` / `BaseEvent` | Event contract and the base struct to embed in your own events, built with `NewBaseEvent`. |
@@ -95,7 +95,7 @@ func main() {
 | `InMemoryTransport` | Built-in channel-based transport, suitable for single-process use. |
 | `BusOption` | Functional options for `RegisterBus`: `WithBusName`, `WithPartitions`, `WithBufferSize`. |
 | `EventOption` | Functional options for `RegisterEvent`: `WithEventName`, `OfType[T]`. |
-| `EngineOption` | Functional options for `NewCQRSEngine`: `WithLogger`. |
+| `EngineOption` | Functional options for `NewEngine`: `WithLogger`. |
 
 ## Delivery semantics
 
