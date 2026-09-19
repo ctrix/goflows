@@ -3,21 +3,23 @@ package goflows
 import (
 	"context"
 	"github.com/stretchr/testify/require"
-	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
 const (
-	BUS_FIRST = iota + 1
-	BUS_SECOND
-	BUS_THIRD
-	BUS_FOURTH
-	EVENT_FIRST
-	EVENT_SECOND
-	EVENT_THIRD
-	EVENT_FOURTH
+	busFirst EventBus = iota + 1
+	busSecond
+	busThird
+	busFourth
+)
+
+const (
+	eventFirst EventType = iota + 1
+	eventSecond
+	eventThird
+	eventFourth
 )
 
 type TestEvent struct {
@@ -34,58 +36,50 @@ func newTestEvent(typ EventType) *TestEvent {
 func TestBasic(t *testing.T) {
 	t.Parallel()
 
-	// assert := require.New(t)
 	require := require.New(t)
 
-	// **************************************
 	eh := new(InMemoryTransport)
 
-	// **************************************
 	cq, err := NewEngine(eh)
 	require.Nil(err)
 	require.NotNil(cq)
 
-	// **************************************
-	err = cq.RegisterBus(BUS_FIRST, WithBusName("high prio"), WithPartitions(2))
+	err = cq.RegisterBus(busFirst, WithBusName("high prio"), WithPartitions(2))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, WithBusName("normal prio"))
+	err = cq.RegisterBus(busSecond, WithBusName("normal prio"))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_THIRD, WithBusName("low prio"))
+	err = cq.RegisterBus(busThird, WithBusName("low prio"))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, WithBusName("should fail"))
+	err = cq.RegisterBus(busSecond, WithBusName("should fail"))
 	require.NotNil(err)
 
-	err = cq.RegisterBus(BUS_THIRD, WithBusName("normal prio"))
+	err = cq.RegisterBus(busThird, WithBusName("normal prio"))
 	require.NotNil(err)
 
-	// **************************************
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a/1"))
+	err = cq.RegisterEvent(busFirst, eventFirst, WithEventName("event a/1"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_SECOND, EVENT_SECOND, WithEventName("event b/2"))
+	err = cq.RegisterEvent(busSecond, eventSecond, WithEventName("event b/2"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_THIRD, WithEventName("event c/1"))
+	err = cq.RegisterEvent(busFirst, eventThird, WithEventName("event c/1"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a/1"))
+	err = cq.RegisterEvent(busFirst, eventFirst, WithEventName("event a/1"))
 	require.NotNil(err)
 
-	err = cq.RegisterEvent(BUS_THIRD, EVENT_THIRD, WithEventName("event c/3"))
+	err = cq.RegisterEvent(busThird, eventThird, WithEventName("event c/3"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_FOURTH, EVENT_THIRD, WithEventName("event c/4"))
+	err = cq.RegisterEvent(busFourth, eventThird, WithEventName("event c/4"))
 	require.NotNil(err)
-
-	// **************************************
 
 	err = cq.Start()
 	require.Nil(err)
 
-	// **************************************
 	var counter int64 = 0
 	cbf := func(ev Event) {
 		atomic.AddInt64(&counter, 1)
@@ -100,42 +94,26 @@ func TestBasic(t *testing.T) {
 	tot = cq.countSubscriptions()
 	require.Equal(int64(0), tot)
 
-	_, err = Subscribe(cq, BUS_FIRST, EVENT_FIRST, cbf)
+	_, err = Subscribe(cq, busFirst, eventFirst, cbf)
 	require.Nil(err)
 
-	_, err = Subscribe(cq, BUS_SECOND, EVENT_SECOND, cbf2)
+	_, err = Subscribe(cq, busSecond, eventSecond, cbf2)
 	require.Nil(err)
 
 	tot = cq.countSubscriptions()
 	require.Equal(int64(2), tot)
 
-	_, err = Subscribe(cq, BUS_FIRST, EVENT_FOURTH, cbf) // Event type is not registered
+	_, err = Subscribe(cq, busFirst, eventFourth, cbf) // Event type is not registered
 	require.NotNil(err)
 
-	// **************************************
-
 	for i := 0; i < 3; i++ {
-		err = cq.Publish(context.Background(), newTestEvent(EVENT_FIRST))
+		err = cq.Publish(context.Background(), newTestEvent(eventFirst))
 		require.Nil(err)
 	}
 
-	err = cq.Publish(context.Background(), newTestEvent(EVENT_SECOND))
+	err = cq.Publish(context.Background(), newTestEvent(eventSecond))
 	require.Nil(err)
 
-	// **************************************
-	// When you unsubscribe, you are not sure where the current event stream has arrived, so it's useless to count the messages if you don't
-	// know how many of them have been processed.
-	// cq.Unsubscribe(EVENT_FIRST, cbf, &counter)
-	// tot = cq.countSubscriptions()
-	// require.Equal(int64(1), tot)
-
-	// cq.Unsubscribe(EVENT_SECOND, cbf2, &counter2)
-	// tot = cq.countSubscriptions()
-	// require.Equal(int64(1), tot)
-
-	// time.Sleep(510 * time.Millisecond)
-
-	// **************************************
 	err = cq.Stop()
 	require.Nil(err)
 
@@ -148,66 +126,56 @@ func TestRequest(t *testing.T) {
 
 	require := require.New(t)
 
-	// **************************************
 	eh := new(InMemoryTransport)
 
-	// **************************************
 	cq, err := NewEngine(eh)
 	require.Nil(err)
 	require.NotNil(cq)
 
-	// **************************************
-	err = cq.RegisterBus(BUS_FIRST, WithBusName("high prio"), WithPartitions(2))
+	err = cq.RegisterBus(busFirst, WithBusName("high prio"), WithPartitions(2))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, WithBusName("low prio"))
+	err = cq.RegisterBus(busSecond, WithBusName("low prio"))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_THIRD, WithBusName("normal prio"))
+	err = cq.RegisterBus(busThird, WithBusName("normal prio"))
 	require.Nil(err)
 
-	// **************************************
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a"))
+	err = cq.RegisterEvent(busFirst, eventFirst, WithEventName("event a"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_SECOND, EVENT_SECOND, WithEventName("event b"))
+	err = cq.RegisterEvent(busSecond, eventSecond, WithEventName("event b"))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_THIRD, EVENT_THIRD, WithEventName("event d"))
+	err = cq.RegisterEvent(busThird, eventThird, WithEventName("event d"))
 	require.Nil(err)
-
-	// **************************************
 
 	err = cq.Start()
 	require.Nil(err)
 
-	// **************************************
 	cbf3 := func(ev Event) {
-		// slog.Info("======================================================= CB listener (pub&wait)")
-		te2 := newTestEvent(EVENT_FIRST)
+		te2 := newTestEvent(eventFirst)
 		te2.Referrer = ev.GetID()
 		cq.Publish(context.Background(), te2)
 	}
 
-	_, err = Subscribe(cq, BUS_THIRD, EVENT_THIRD, cbf3)
+	_, err = Subscribe(cq, busThird, eventThird, cbf3)
 	require.Nil(err)
 
-	te := newTestEvent(EVENT_THIRD)
+	te := newTestEvent(eventThird)
 
 	tot1 := cq.countSubscriptions()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	nev, err := Request[Event](ctx, cq, BUS_FIRST, te, EVENT_FIRST)
+	nev, err := Request[Event](ctx, cq, busFirst, te, eventFirst)
 	require.Nil(err)
 	require.NotNil(nev)
-	require.Equal(EventType(EVENT_FIRST), nev.GetType())
+	require.Equal(EventType(eventFirst), nev.GetType())
 	require.Equal(te.ID, nev.GetReferrer())
 
 	tot2 := cq.countSubscriptions()
 	require.Equal(tot1, tot2)
-
-	// **************************************
 
 	err = cq.Stop()
 	require.Nil(err)
@@ -218,63 +186,54 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 
 	require := require.New(t)
 
-	// **************************************
 	eh := new(InMemoryTransport)
 
-	// **************************************
 	cq, err := NewEngine(eh)
 	require.Nil(err)
 	require.NotNil(cq)
 
-	// **************************************
-	err = cq.RegisterBus(BUS_FIRST, WithBusName("high prio"), WithPartitions(2))
+	err = cq.RegisterBus(busFirst, WithBusName("high prio"), WithPartitions(2))
 	require.Nil(err)
 
-	err = cq.RegisterBus(BUS_SECOND, WithBusName("low prio"))
+	err = cq.RegisterBus(busSecond, WithBusName("low prio"))
 	require.Nil(err)
 
-	// **************************************
-	tot, err := cq.GetBusTypeFromEventType(EVENT_FIRST)
+	tot, err := cq.GetBusTypeFromEventType(eventFirst)
 	require.Equal(0, len(tot))
 	require.NotNil(err)
 
-	err = cq.RegisterEvent(BUS_FIRST, EVENT_FIRST, WithEventName("event a"))
+	err = cq.RegisterEvent(busFirst, eventFirst, WithEventName("event a"))
 	require.Nil(err)
 
-	tot, err = cq.GetBusTypeFromEventType(EVENT_FIRST)
+	tot, err = cq.GetBusTypeFromEventType(eventFirst)
 	require.Equal(1, len(tot))
 	require.Nil(err)
 
-	err = cq.RegisterEvent(BUS_SECOND, EVENT_FIRST, WithEventName("event b"))
+	err = cq.RegisterEvent(busSecond, eventFirst, WithEventName("event b"))
 	require.Nil(err)
 
-	tot, err = cq.GetBusTypeFromEventType(EVENT_FIRST)
+	tot, err = cq.GetBusTypeFromEventType(eventFirst)
 	require.Equal(2, len(tot))
 	require.Nil(err)
 
-	// **************************************
 	err = cq.Start()
 	require.Nil(err)
 
-	// **************************************
 	var counter int64
 	cbfc := func(ev Event) {
-		slog.Info("======================================================= CB double catcher")
 		atomic.AddInt64(&counter, 1)
 	}
 
-	_, err = Subscribe(cq, BUS_FIRST, EVENT_FIRST, cbfc)
+	_, err = Subscribe(cq, busFirst, eventFirst, cbfc)
 	require.Nil(err)
 
-	_, err = Subscribe(cq, BUS_SECOND, EVENT_FIRST, cbfc)
+	_, err = Subscribe(cq, busSecond, eventFirst, cbfc)
 	require.Nil(err)
 
-	te := newTestEvent(EVENT_FIRST)
+	te := newTestEvent(eventFirst)
 
 	err = cq.Publish(context.Background(), te)
 	require.Nil(err)
-
-	// **************************************
 
 	err = cq.Stop()
 	require.Nil(err)

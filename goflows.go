@@ -471,16 +471,6 @@ func (c *Engine) Stop() error {
 	return closeErr
 }
 
-// This function is used only in tests
-func (c *Engine) countSubscriptions() int64 {
-	var n int64
-	for _, subs := range *c.subscriptions.Load() {
-		n += int64(len(subs))
-	}
-
-	return n
-}
-
 // subscribersFor returns the current subscriber list for (btype, etype). Both
 // the map and the slice are immutable snapshots, so no lock is needed.
 func (c *Engine) subscribersFor(btype EventBus, etype EventType) []*Subscription {
