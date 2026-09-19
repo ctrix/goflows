@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"reflect"
 	"runtime/debug"
 	"slices"
 	"sync"
@@ -29,6 +30,7 @@ var (
 	EEventBusInvalid               = errors.New("event bus is invalid")
 	EEventBusClosed                = errors.New("event bus is closed")
 	EEventNotRegisteredOnBus       = errors.New("event type is not registered on this bus")
+	EEventTypeMismatch             = errors.New("event type is bound to a different Go type")
 	EEventHandlerNull              = errors.New("event handler is null")
 	EEventHandlerRedefined         = errors.New("event handler is already set and cannot be redefined")
 	EEventHandlerInvalid           = errors.New("event handler is invalid")
@@ -121,6 +123,18 @@ func (c BusConfig) validate() error {
 type EventConfig struct {
 	// Name is a human readable label used in logs. Optional.
 	Name string
+
+	goType reflect.Type
+}
+
+// OfType binds the event type being registered to the Go type T. Once bound,
+// registering the same event type with another Go type, publishing a value of
+// another Go type with that event type, or subscribing with [Subscribe] for
+// another T fails with EEventTypeMismatch. Use it so two packages that happen
+// to pick the same EventType value fail loudly instead of receiving each
+// other's events.
+func OfType[T Event]() EventOption {
+	return func(c *EventConfig) { c.goType = reflect.TypeFor[T]() }
 }
 
 // EventOption customises an event type at registration.
@@ -175,9 +189,10 @@ type CQRS struct {
 
 	// regMu serialises RegisterEvent writers. Readers use eventTypes directly;
 	// the slices stored in it are never mutated once published.
-	regMu      sync.Mutex
-	eventTypes sync.Map // this is a map[EventType][]EventBus
-	eventNames sync.Map // this is a map[EventType]string
+	regMu        sync.Mutex
+	eventTypes   sync.Map // this is a map[EventType][]EventBus
+	eventNames   sync.Map // this is a map[EventType]string
+	eventGoTypes sync.Map // this is a map[EventType]reflect.Type, bound with OfType
 
 	state atomic.Int32 // engineState
 
@@ -371,6 +386,12 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOptio
 	c.regMu.Lock()
 	defer c.regMu.Unlock()
 
+	if cfg.goType != nil {
+		if bound, ok := c.eventGoTypes.Load(etype); ok && bound.(reflect.Type) != cfg.goType {
+			return EEventTypeMismatch
+		}
+	}
+
 	var sl []EventBus
 	if asl, ok := c.eventTypes.Load(etype); ok {
 		sl = asl.([]EventBus)
@@ -383,6 +404,9 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOptio
 	c.eventTypes.Store(etype, append(slices.Clone(sl), btype))
 	if cfg.Name != "" {
 		c.eventNames.Store(etype, cfg.Name)
+	}
+	if cfg.goType != nil {
+		c.eventGoTypes.Store(etype, cfg.goType)
 	}
 	c.logger.Debug("registering event type", "event-type", etype, "event-name", c.eventName(etype), "bus-type", btype)
 
@@ -447,6 +471,15 @@ func (c *CQRS) countSubscriptions() int64 {
 // the map and the slice are immutable snapshots, so no lock is needed.
 func (c *CQRS) subscribersFor(btype EventBus, etype EventType) []*Subscription {
 	return (*c.subscriptions.Load())[subscriptionKey{btype: btype, etype: etype}]
+}
+
+// checkGoType returns EEventTypeMismatch when etype is bound with OfType to a
+// Go type other than got. An unbound etype accepts anything.
+func (c *CQRS) checkGoType(etype EventType, got reflect.Type) error {
+	if bound, ok := c.eventGoTypes.Load(etype); ok && bound.(reflect.Type) != got {
+		return EEventTypeMismatch
+	}
+	return nil
 }
 
 // eventName returns the label given with WithEventName, or "" if none.
@@ -516,6 +549,48 @@ func (c *CQRS) Subscribe(btype EventBus, etype EventType, cb EventSubscriptionCa
 	return sub, nil
 }
 
+// Subscribe is the typed form of [CQRS.Subscribe]: fn receives the event as
+// T, no type assertion needed. If etype is bound with [OfType] to a type
+// other than T the call fails with EEventTypeMismatch. If it is not bound, an
+// event that is not a T is logged and skipped.
+func Subscribe[T Event](c *CQRS, btype EventBus, etype EventType, fn func(T)) (*Subscription, error) {
+	if fn == nil {
+		return nil, ESubscriptionInvalid
+	}
+
+	want := reflect.TypeFor[T]()
+	if err := c.checkGoType(etype, want); err != nil {
+		return nil, err
+	}
+
+	return c.Subscribe(btype, etype, func(ev Event) {
+		t, ok := ev.(T)
+		if !ok {
+			c.logger.Error("event does not match subscription type", "bus-type", btype, "event-type", etype, "event-id", ev.GetID(), "want", want.String(), "got", reflect.TypeOf(ev).String())
+			return
+		}
+		fn(t)
+	})
+}
+
+// Request is the typed form of [CQRS.Request]: the reply is returned as T. A
+// reply of another Go type fails with EEventTypeMismatch.
+func Request[T Event](ctx context.Context, c *CQRS, btype EventBus, ev Event, retet EventType) (T, error) {
+	var zero T
+
+	res, err := c.Request(ctx, btype, ev, retet)
+	if err != nil {
+		return zero, err
+	}
+
+	t, ok := res.(T)
+	if !ok {
+		return zero, EEventTypeMismatch
+	}
+
+	return t, nil
+}
+
 func (c *CQRS) unsubscribe(sub *Subscription) error {
 	if err := c.checkNotStopped(); err != nil {
 		return err
@@ -572,6 +647,10 @@ func (c *CQRS) Publish(ctx context.Context, ev Event) error {
 	}
 
 	if err := c.checkNotStopped(); err != nil {
+		return err
+	}
+
+	if err := c.checkGoType(ev.GetType(), reflect.TypeOf(ev)); err != nil {
 		return err
 	}
 

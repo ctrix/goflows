@@ -3,7 +3,9 @@
 A lightweight event bus for Go with typed events, pluggable transports and
 request/response messaging, built for CQRS-style applications.
 
-- Typed events routed over named buses
+- Typed events routed over named buses; `OfType` binds an event type value to
+  one Go type so colliding constants fail instead of cross-delivering
+- Generic `Subscribe[T]` and `Request[T]`: callbacks and replies already typed
 - Pluggable transport (`Transport`), with an in-memory
   implementation included
 - Subscribe returns a handle; `Unsubscribe` on it removes exactly that subscription
@@ -55,7 +57,8 @@ func main() {
 	if err := cq.RegisterBus(BusMain, goflows.WithBusName("main")); err != nil {
 		panic(err)
 	}
-	if err := cq.RegisterEvent(BusMain, EventUserCreated, goflows.WithEventName("user created")); err != nil {
+	if err := cq.RegisterEvent(BusMain, EventUserCreated,
+		goflows.WithEventName("user created"), goflows.OfType[*UserCreated]()); err != nil {
 		panic(err)
 	}
 
@@ -64,8 +67,8 @@ func main() {
 	}
 	defer cq.Stop()
 
-	sub, err := cq.Subscribe(BusMain, EventUserCreated, func(ev goflows.Event) {
-		slog.Info("got event", "id", ev.GetID(), "name", ev.GetName())
+	sub, err := goflows.Subscribe(cq, BusMain, EventUserCreated, func(ev *UserCreated) {
+		slog.Info("got event", "id", ev.GetID(), "user", ev.UserID)
 	})
 	if err != nil {
 		panic(err)
@@ -87,10 +90,11 @@ func main() {
 | `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
 | `Event` / `BaseEvent` | Event contract and the base struct to embed in your own events, built with `NewBaseEvent`. |
 | `Subscription` | Handle returned by `Subscribe`, with `Unsubscribe`, `Bus` and `Type`. |
+| `Subscribe[T]` / `Request[T]` | Package-level typed forms of the engine methods. |
 | `Transport` | Transport abstraction: `Open`, `Has`, `Stream`, `Publish`, `Close`. Implement it to back the engine with a broker; add `SetLogger` to receive the engine logger. |
 | `InMemoryTransport` | Built-in channel-based transport, suitable for single-process use. |
 | `BusOption` | Functional options for `RegisterBus`: `WithBusName`, `WithPartitions`, `WithBufferSize`. |
-| `EventOption` | Functional options for `RegisterEvent`: `WithEventName`. |
+| `EventOption` | Functional options for `RegisterEvent`: `WithEventName`, `OfType[T]`. |
 | `EngineOption` | Functional options for `NewCQRSEngine`: `WithLogger`. |
 
 ## Delivery semantics

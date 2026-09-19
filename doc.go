@@ -14,14 +14,19 @@
 //	// goflows.NewCQRSEngine(handler, goflows.WithLogger(slog.Default()))
 //
 //	cq.RegisterBus(MyBus, goflows.WithBusName("main"), goflows.WithPartitions(2))
-//	cq.RegisterEvent(MyBus, MyEventType, goflows.WithEventName("user created"))
+//	cq.RegisterEvent(MyBus, MyEventType, goflows.WithEventName("user created"), goflows.OfType[*MyEvent]())
 //	cq.Start()
 //	defer cq.Stop()
 //
-//	sub, err := cq.Subscribe(MyBus, MyEventType, func(ev goflows.Event) {
-//		// react to the event
+//	sub, err := goflows.Subscribe(cq, MyBus, MyEventType, func(ev *MyEvent) {
+//		// react to the event, already typed
 //	})
 //	// handle err; later: sub.Unsubscribe()
+//
+// [OfType] binds an EventType value to one Go type: publishing or subscribing
+// with another type for that value fails with EEventTypeMismatch, so two
+// packages that pick the same number do not silently receive each other's
+// events. cq.Subscribe with a func(goflows.Event) is the untyped form.
 //
 //	cq.Publish(ctx, &MyEvent{BaseEvent: goflows.NewBaseEvent(MyEventType)})
 //
