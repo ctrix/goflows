@@ -17,7 +17,7 @@ type failingBusHandler struct {
 	err    error
 }
 
-func (f *failingBusHandler) Publish(ctx context.Context, btype EventBus, ev EventInterface) error {
+func (f *failingBusHandler) Publish(ctx context.Context, btype EventBus, ev Event) error {
 	if btype == f.failOn {
 		return f.err
 	}

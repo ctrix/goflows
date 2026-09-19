@@ -21,15 +21,10 @@ const (
 	scopeEvOnlyHigh
 )
 
-type scopeEvent struct{ Event }
-
-func (e *scopeEvent) Init() { e.BaseInit() }
+type scopeEvent struct{ BaseEvent }
 
 func newScopeEvent(t EventType) *scopeEvent {
-	e := &scopeEvent{}
-	e.BaseInit()
-	e.Type = t
-	return e
+	return &scopeEvent{BaseEvent: NewBaseEvent(t)}
 }
 
 // newScopedEngine builds and starts an engine with two buses. scopeEvOrder is
@@ -61,7 +56,7 @@ func buildScopedEngine(t *testing.T) *CQRS {
 }
 
 func counterCallback(n *int64) EventSubscriptionCallback {
-	return func(EventInterface) { atomic.AddInt64(n, 1) }
+	return func(Event) { atomic.AddInt64(n, 1) }
 }
 
 // A subscriber on one bus must receive only the copies of the event that
@@ -172,7 +167,7 @@ func TestUnsubscribeDuringDispatchDoesNotCorruptDelivery(t *testing.T) {
 	inside := make(chan struct{})
 	release := make(chan struct{})
 	var first int64
-	blocker := func(EventInterface) {
+	blocker := func(Event) {
 		if atomic.AddInt64(&first, 1) == 1 {
 			close(inside) // dispatcher is now inside the range loop
 			<-release

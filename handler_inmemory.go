@@ -15,7 +15,7 @@ const INMEMORY_HANDLER_NAME = "InMemoryEventHandler"
 // closed channel, and a Publish on a full bus gives up when ctx is done.
 type inMemoryBus struct {
 	btype  EventBus
-	ch     chan EventInterface
+	ch     chan Event
 	done   chan struct{}
 	closed atomic.Bool
 }
@@ -23,12 +23,12 @@ type inMemoryBus struct {
 func newInMemoryBus(btype EventBus, size int) *inMemoryBus {
 	return &inMemoryBus{
 		btype: btype,
-		ch:    make(chan EventInterface, size),
+		ch:    make(chan Event, size),
 		done:  make(chan struct{}),
 	}
 }
 
-func (b *inMemoryBus) publish(ctx context.Context, ev EventInterface) error {
+func (b *inMemoryBus) publish(ctx context.Context, ev Event) error {
 	if b.closed.Load() {
 		return EEventBusClosed
 	}
@@ -106,7 +106,7 @@ func (eh *InMemoryEventHandler) BusExists(btype EventBus) bool {
 
 // Range returns the channel events for btype are delivered on. The channel is
 // never closed; the engine stops reading from it after Stop.
-func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan EventInterface, bool) {
+func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan Event, bool) {
 	abus, ok := eh.inputs.Load(btype)
 	if !ok {
 		return nil, ok
@@ -116,7 +116,7 @@ func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan EventInterface, bo
 	return bus.ch, ok
 }
 
-func (eh *InMemoryEventHandler) Publish(ctx context.Context, btype EventBus, ev EventInterface) error {
+func (eh *InMemoryEventHandler) Publish(ctx context.Context, btype EventBus, ev Event) error {
 	abus, ok := eh.inputs.Load(btype)
 	if !ok {
 		return EEventBusDoesntExists

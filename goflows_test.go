@@ -21,17 +21,14 @@ const (
 )
 
 type TestEvent struct {
-	Event
+	BaseEvent
 	TestInt int
 }
 
-func (t *TestEvent) Init() {
-	t.BaseInit()
-	t.Name = "New Event"
-	t.Type = EVENT_FIRST
-
-	t.TestInt = 1
-	return
+func newTestEvent(typ EventType) *TestEvent {
+	te := &TestEvent{BaseEvent: NewBaseEvent(typ), TestInt: 1}
+	te.Name = "New Event"
+	return te
 }
 
 type TestEventHandler struct {
@@ -97,12 +94,12 @@ func TestBasic(t *testing.T) {
 
 	// **************************************
 	var counter int64 = 0
-	cbf := func(ev EventInterface) {
+	cbf := func(ev Event) {
 		atomic.AddInt64(&counter, 1)
 	}
 
 	var counter2 int64 = 0
-	cbf2 := func(ev EventInterface) {
+	cbf2 := func(ev Event) {
 		atomic.AddInt64(&counter2, 1)
 	}
 
@@ -124,25 +121,12 @@ func TestBasic(t *testing.T) {
 
 	// **************************************
 
-	te := &TestEvent{}
-	te.Init()
-	err = cq.Publish(context.Background(), te)
-	require.Nil(err)
+	for i := 0; i < 3; i++ {
+		err = cq.Publish(context.Background(), newTestEvent(EVENT_FIRST))
+		require.Nil(err)
+	}
 
-	te = &TestEvent{}
-	te.Init()
-	err = cq.Publish(context.Background(), te)
-	require.Nil(err)
-
-	te = &TestEvent{}
-	te.Init()
-	err = cq.Publish(context.Background(), te)
-	require.Nil(err)
-
-	te = &TestEvent{}
-	te.Init()
-	te.Type = EVENT_SECOND
-	err = cq.Publish(context.Background(), te)
+	err = cq.Publish(context.Background(), newTestEvent(EVENT_SECOND))
 	require.Nil(err)
 
 	// **************************************
@@ -205,10 +189,9 @@ func TestRequest(t *testing.T) {
 	require.Nil(err)
 
 	// **************************************
-	cbf3 := func(ev EventInterface) {
+	cbf3 := func(ev Event) {
 		// slog.Info("======================================================= CB listener (pub&wait)")
-		te2 := &TestEvent{}
-		te2.Init()
+		te2 := newTestEvent(EVENT_FIRST)
 		te2.Referrer = ev.GetID()
 		cq.Publish(context.Background(), te2)
 	}
@@ -216,9 +199,7 @@ func TestRequest(t *testing.T) {
 	_, err = cq.Subscribe(BUS_THIRD, EVENT_THIRD, cbf3)
 	require.Nil(err)
 
-	te := &TestEvent{}
-	te.Init()
-	te.Type = EVENT_THIRD
+	te := newTestEvent(EVENT_THIRD)
 
 	tot1 := cq.countSubscriptions()
 
@@ -228,7 +209,7 @@ func TestRequest(t *testing.T) {
 	require.Nil(err)
 	require.NotNil(nev)
 	require.Equal(EventType(EVENT_FIRST), nev.GetType())
-	require.Equal(nev.GetReferrer(), &te.ID)
+	require.Equal(te.ID, nev.GetReferrer())
 
 	tot2 := cq.countSubscriptions()
 	require.Equal(tot1, tot2)
@@ -284,7 +265,7 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 
 	// **************************************
 	var counter int64
-	cbfc := func(ev EventInterface) {
+	cbfc := func(ev Event) {
 		slog.Info("======================================================= CB double catcher")
 		atomic.AddInt64(&counter, 1)
 	}
@@ -295,9 +276,7 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 	_, err = cq.Subscribe(BUS_SECOND, EVENT_FIRST, cbfc)
 	require.Nil(err)
 
-	te := &TestEvent{}
-	te.Init()
-	te.Type = EVENT_FIRST
+	te := newTestEvent(EVENT_FIRST)
 
 	err = cq.Publish(context.Background(), te)
 	require.Nil(err)

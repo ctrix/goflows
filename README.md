@@ -39,14 +39,8 @@ const (
 )
 
 type UserCreated struct {
-	goflows.Event
+	goflows.BaseEvent
 	UserID string
-}
-
-func (e *UserCreated) Init() {
-	e.BaseInit()
-	e.Name = "user created"
-	e.Type = EventUserCreated
 }
 
 func main() {
@@ -70,7 +64,7 @@ func main() {
 	}
 	defer cq.Stop()
 
-	sub, err := cq.Subscribe(BusMain, EventUserCreated, func(ev goflows.EventInterface) {
+	sub, err := cq.Subscribe(BusMain, EventUserCreated, func(ev goflows.Event) {
 		slog.Info("got event", "id", ev.GetID(), "name", ev.GetName())
 	})
 	if err != nil {
@@ -78,8 +72,8 @@ func main() {
 	}
 	defer sub.Unsubscribe()
 
-	ev := &UserCreated{UserID: "42"}
-	ev.Init()
+	ev := &UserCreated{BaseEvent: goflows.NewBaseEvent(EventUserCreated), UserID: "42"}
+	ev.Name = "user created"
 	_ = cq.Publish(context.Background(), ev)
 }
 ```
@@ -91,7 +85,7 @@ func main() {
 | `CQRS` | The engine. Owns buses, event registrations and subscriptions. |
 | `EventBus` | Identifier of a bus. Buses are registered with `RegisterBus`. |
 | `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
-| `EventInterface` / `Event` | Event contract and a base struct to embed in your own events. |
+| `Event` / `BaseEvent` | Event contract and the base struct to embed in your own events, built with `NewBaseEvent`. |
 | `Subscription` | Handle returned by `Subscribe`, with `Unsubscribe`, `Bus` and `Type`. |
 | `EventHandlerInterface` | Transport abstraction. Implement it to back the engine with another broker. |
 | `InMemoryEventHandler` | Built-in channel-based transport, suitable for single-process use. |

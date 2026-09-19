@@ -57,7 +57,7 @@ type subscriptionKey struct {
 type BusDispatcher struct {
 	btype EventBus
 	cfg   BusConfig
-	ch    <-chan EventInterface
+	ch    <-chan Event
 	wg    sync.WaitGroup
 }
 
@@ -294,7 +294,7 @@ func (c *CQRS) dispatchLoop(d *BusDispatcher) {
 
 // deliver hands ev to every subscriber of (btype, type of ev). A panicking
 // subscriber is logged and skipped; it never affects the others or the bus.
-func (c *CQRS) deliver(btype EventBus, ev EventInterface) {
+func (c *CQRS) deliver(btype EventBus, ev Event) {
 	subs := c.subscribersFor(btype, ev.GetType())
 	if len(subs) == 0 {
 		c.logger.Debug("no subscriptions found for event on bus", "bus-type", btype, "event-type", ev.GetType(), "event-id", ev.GetID())
@@ -306,7 +306,7 @@ func (c *CQRS) deliver(btype EventBus, ev EventInterface) {
 	}
 }
 
-func (c *CQRS) safeCall(sub *Subscription, ev EventInterface) {
+func (c *CQRS) safeCall(sub *Subscription, ev Event) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.logger.Error("subscriber panicked", "bus-type", sub.key.btype, "event-type", ev.GetType(), "event-name", c.eventName(ev.GetType()), "event-id", ev.GetID(), "panic", r, "stack", string(debug.Stack()))
@@ -553,7 +553,7 @@ func (c *CQRS) GetBusTypeFromEventType(etype EventType) ([]EventBus, error) {
 	return nil, EEventTypeInvalid
 }
 
-func (c *CQRS) GetBusTypeFromEvent(ev EventInterface) ([]EventBus, error) {
+func (c *CQRS) GetBusTypeFromEvent(ev Event) ([]EventBus, error) {
 	etype := ev.GetType()
 	return c.GetBusTypeFromEventType(etype)
 }
@@ -562,7 +562,7 @@ func (c *CQRS) GetBusTypeFromEvent(ev EventInterface) ([]EventBus, error) {
 // a bus is full, until ctx is done: the transport returns ctx.Err() in that
 // case. Use a context with a deadline when publishing from inside a subscriber
 // of the same bus, otherwise a full bus deadlocks the dispatcher.
-func (c *CQRS) Publish(ctx context.Context, ev EventInterface) error {
+func (c *CQRS) Publish(ctx context.Context, ev Event) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -594,7 +594,7 @@ func (c *CQRS) Publish(ctx context.Context, ev EventInterface) error {
 // ctx.Err(): context.DeadlineExceeded for a timeout, context.Canceled for an
 // external cancellation. The temporary reply subscription is always removed
 // before returning.
-func (c *CQRS) Request(ctx context.Context, btype EventBus, ev EventInterface, retet EventType) (EventInterface, error) {
+func (c *CQRS) Request(ctx context.Context, btype EventBus, ev Event, retet EventType) (Event, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -602,10 +602,10 @@ func (c *CQRS) Request(ctx context.Context, btype EventBus, ev EventInterface, r
 	// Buffered by one so the dispatcher never blocks on us; the non-blocking
 	// send makes the first reply win and discards the rest without touching
 	// any shared variable.
-	reply := make(chan EventInterface, 1)
+	reply := make(chan Event, 1)
 	waitid := ev.GetID()
-	cbf := func(cur EventInterface) {
-		if ref := cur.GetReferrer(); ref != nil && *ref == waitid {
+	cbf := func(cur Event) {
+		if cur.GetReferrer() == waitid {
 			select {
 			case reply <- cur:
 			default:

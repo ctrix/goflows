@@ -16,7 +16,7 @@ func TestSubscriptionHandleUnsubscribes(t *testing.T) {
 
 	var got int64
 	delivered := make(chan struct{}, 8)
-	sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {
+	sub, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
 		atomic.AddInt64(&got, 1)
 		delivered <- struct{}{}
 	})

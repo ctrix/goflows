@@ -31,7 +31,7 @@ func TestDefaultLoggerIsSilent(t *testing.T) {
 	require.NoError(cq.RegisterBus(scopeBusHigh, WithBusName("orders")))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvOrder, WithEventName("order")))
 	require.NoError(cq.Start())
-	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {})
+	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {})
 	require.NoError(err)
 	require.NoError(cq.Publish(context.Background(), newScopeEvent(scopeEvOrder)))
 	require.Error(cq.Publish(context.Background(), newScopeEvent(scopeEvOnlyHigh))) // unregistered: error path logs too

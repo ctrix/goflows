@@ -1,7 +1,7 @@
 // Package goflows provides a small event bus engine for Go applications built
 // around the CQRS / event-driven pattern.
 //
-// The engine ([CQRS]) routes typed events ([EventInterface]) over named buses
+// The engine ([CQRS]) routes typed events ([Event]) over named buses
 // ([EventBus]) through a pluggable transport ([EventHandlerInterface]).
 // An in-memory transport ([InMemoryEventHandler]) is provided out of the box.
 //
@@ -18,12 +18,12 @@
 //	cq.Start()
 //	defer cq.Stop()
 //
-//	sub, err := cq.Subscribe(MyBus, MyEventType, func(ev goflows.EventInterface) {
+//	sub, err := cq.Subscribe(MyBus, MyEventType, func(ev goflows.Event) {
 //		// react to the event
 //	})
 //	// handle err; later: sub.Unsubscribe()
 //
-//	cq.Publish(ctx, &MyEvent{})
+//	cq.Publish(ctx, &MyEvent{BaseEvent: goflows.NewBaseEvent(MyEventType)})
 //
 //	// Request/reply: publish and wait for an event of ReplyType on MyBus whose
 //	// Referrer is the request ID. ctx bounds the wait.

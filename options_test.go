@@ -88,7 +88,7 @@ func TestBufferSizeIsHonoured(t *testing.T) {
 	inside := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
 		once.Do(func() { close(inside) })
 		<-release
 	})

@@ -12,9 +12,9 @@ type EventHandlerInterface interface {
 	SetLogger(l *slog.Logger)
 	RegisterBus(btype EventBus, cfg BusConfig) error
 	BusExists(btype EventBus) bool
-	Range(btype EventBus) (<-chan EventInterface, bool)
+	Range(btype EventBus) (<-chan Event, bool)
 	// Publish enqueues ev on btype. It may block while the bus is full and
 	// must return ctx.Err() once ctx is done.
-	Publish(ctx context.Context, btype EventBus, ev EventInterface) error
+	Publish(ctx context.Context, btype EventBus, ev Event) error
 	Stop()
 }

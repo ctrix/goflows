@@ -21,7 +21,7 @@ func TestSelfPublishOnFullBusHonoursContext(t *testing.T) {
 	innerDone := make(chan struct{})
 	var innerErr atomic.Value
 	var calls int64
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
 		if atomic.AddInt64(&calls, 1) != 1 {
 			return
 		}

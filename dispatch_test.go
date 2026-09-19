@@ -35,7 +35,7 @@ func TestPanicInCallbackDoesNotKillBus(t *testing.T) {
 	cq := buildEngineWithBus(t)
 
 	var healthy int64
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) { panic("boom") })
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) { panic("boom") })
 	require.NoError(err)
 	_, err = cq.Subscribe(scopeBusHigh, scopeEvOrder, counterCallback(&healthy))
 	require.NoError(err)
@@ -56,7 +56,7 @@ func TestSinglePartitionPreservesOrder(t *testing.T) {
 
 	var mu sync.Mutex
 	var seen []string
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(ev EventInterface) {
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(ev Event) {
 		mu.Lock()
 		seen = append(seen, ev.GetName())
 		mu.Unlock()
@@ -87,7 +87,7 @@ func TestPartitionsDeliverConcurrently(t *testing.T) {
 	release := make(chan struct{})
 	secondIn := make(chan struct{})
 	var calls int64
-	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {
+	_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {
 		switch atomic.AddInt64(&calls, 1) {
 		case 1:
 			close(firstIn)
@@ -138,7 +138,7 @@ func TestPublishConcurrentWithStopDoesNotPanic(t *testing.T) {
 
 	for round := 0; round < 20; round++ {
 		cq := buildEngineWithBus(t)
-		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(EventInterface) {})
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(Event) {})
 		require.NoError(err)
 
 		var wg sync.WaitGroup

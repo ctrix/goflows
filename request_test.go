@@ -14,14 +14,14 @@ const scopeEvReply EventType = 600
 // newRequestEngine registers scopeEvOrder (the request) and scopeEvReply (the
 // reply) on scopeBusHigh. If responder is not nil it is subscribed to the
 // request type and called with a reply function.
-func newRequestEngine(t *testing.T, responder func(req EventInterface, reply func(*scopeEvent))) *CQRS {
+func newRequestEngine(t *testing.T, responder func(req Event, reply func(*scopeEvent))) *CQRS {
 	t.Helper()
 	require := require.New(t)
 	cq := newScopedEngine(t)
 	require.NoError(cq.RegisterEvent(scopeBusHigh, scopeEvReply))
 
 	if responder != nil {
-		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(req EventInterface) {
+		_, err := cq.Subscribe(scopeBusHigh, scopeEvOrder, func(req Event) {
 			responder(req, func(r *scopeEvent) {
 				r.Referrer = req.GetID()
 				_ = cq.Publish(context.Background(), r)
@@ -87,7 +87,7 @@ func TestRequestPublishErrorRemovesSubscription(t *testing.T) {
 func TestRequestTwoRepliesFirstWins(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	cq := newRequestEngine(t, func(req EventInterface, reply func(*scopeEvent)) {
+	cq := newRequestEngine(t, func(req Event, reply func(*scopeEvent)) {
 		first := newScopeEvent(scopeEvReply)
 		first.Name = "first"
 		reply(first)
@@ -114,7 +114,7 @@ func TestRequestTwoRepliesFirstWins(t *testing.T) {
 func TestRequestReturnsReply(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
-	cq := newRequestEngine(t, func(req EventInterface, reply func(*scopeEvent)) {
+	cq := newRequestEngine(t, func(req Event, reply func(*scopeEvent)) {
 		r := newScopeEvent(scopeEvReply)
 		r.Name = "pong"
 		reply(r)
@@ -126,9 +126,7 @@ func TestRequestReturnsReply(t *testing.T) {
 	res, err := cq.Request(ctx, scopeBusHigh, req, scopeEvReply)
 	require.NoError(err)
 	require.Equal("pong", res.GetName())
-	ref := res.GetReferrer()
-	require.NotNil(ref)
-	require.Equal(req.GetID(), *ref)
+	require.Equal(req.GetID(), res.GetReferrer())
 
 	require.NoError(cq.Stop())
 }
