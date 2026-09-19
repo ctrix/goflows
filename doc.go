@@ -21,7 +21,8 @@
 //	sub, err := goflows.Subscribe(cq, MyBus, MyEventType, func(ev *MyEvent) {
 //		// react to the event, already typed
 //	})
-//	// handle err; later: sub.Unsubscribe()
+//	// handle err; later: sub.Unsubscribe(), or sub.BindContext(ctx) to tie the
+//	// subscription to a request or session lifetime
 //
 // [OfType] binds an EventType value to one Go type: publishing or subscribing
 // with another type for that value fails with EEventTypeMismatch, so two

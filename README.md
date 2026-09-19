@@ -89,7 +89,7 @@ func main() {
 | `EventBus` | Identifier of a bus. Buses are registered with `RegisterBus`. |
 | `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
 | `Event` / `BaseEvent` | Event contract and the base struct to embed in your own events, built with `NewBaseEvent`. |
-| `Subscription` | Handle returned by `Subscribe`, with `Unsubscribe`, `Bus` and `Type`. |
+| `Subscription` | Handle returned by `Subscribe`, with `Unsubscribe`, `BindContext`, `Bus` and `Type`. |
 | `Subscribe[T]` / `Request[T]` | Package-level typed forms of the engine methods. |
 | `Transport` | Transport abstraction: `Open`, `Has`, `Stream`, `Publish`, `Close`. Implement it to back the engine with a broker; add `SetLogger` to receive the engine logger. |
 | `InMemoryTransport` | Built-in channel-based transport, suitable for single-process use. |

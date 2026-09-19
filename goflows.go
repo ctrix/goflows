@@ -194,6 +194,15 @@ func (s *Subscription) Unsubscribe() error {
 	return s.engine.unsubscribe(s)
 }
 
+// BindContext removes the subscription when ctx is done, from a separate
+// goroutine as [context.AfterFunc] does. It returns s for chaining. A
+// subscription removed by hand first is left alone; an error from the late
+// Unsubscribe, such as EEngineStopped, is ignored.
+func (s *Subscription) BindContext(ctx context.Context) *Subscription {
+	context.AfterFunc(ctx, func() { _ = s.Unsubscribe() })
+	return s
+}
+
 type CQRS struct {
 	logger *slog.Logger
 
