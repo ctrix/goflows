@@ -156,6 +156,18 @@ const (
 	engineStopped
 )
 
+// eventRegistration is what RegisterEvent records for one event type.
+type eventRegistration struct {
+	buses  []EventBus   // never mutated once published
+	name   string       // from WithEventName, "" if none
+	goType reflect.Type // from OfType, nil if unbound
+}
+
+// eventRegistry is an immutable snapshot of every event registration, keyed
+// by event type. Writers build a new map and swap the pointer; readers load
+// the pointer and look up without any lock.
+type eventRegistry map[EventType]eventRegistration
+
 // subscriptionMap is an immutable snapshot of every subscription. Writers
 // build a new map and swap the pointer; readers load the pointer and look up
 // without any lock, so the hot path never touches shared writable memory.
@@ -187,12 +199,10 @@ type CQRS struct {
 
 	transport Transport
 
-	// regMu serialises RegisterEvent writers. Readers use eventTypes directly;
-	// the slices stored in it are never mutated once published.
-	regMu        sync.Mutex
-	eventTypes   sync.Map // this is a map[EventType][]EventBus
-	eventNames   sync.Map // this is a map[EventType]string
-	eventGoTypes sync.Map // this is a map[EventType]reflect.Type, bound with OfType
+	// regMu serialises RegisterEvent writers. Readers load the registry
+	// snapshot without a lock; snapshots are never mutated once published.
+	regMu  sync.Mutex
+	events atomic.Pointer[eventRegistry]
 
 	state atomic.Int32 // engineState
 
@@ -241,6 +251,7 @@ func NewCQRSEngine(eventh Transport, opts ...EngineOption) (*CQRS, error) {
 		stopCh:    make(chan struct{}),
 	}
 	c.subscriptions.Store(&subscriptionMap{})
+	c.events.Store(&eventRegistry{})
 
 	if ls, ok := eventh.(LoggerSetter); ok {
 		ls.SetLogger(cfg.logger)
@@ -374,10 +385,6 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOptio
 		return EEventBusDoesntExists
 	}
 
-	// if _, ok := c.eventTypes.Load(etype); ok {
-	//	return EEventTypeExists
-	// }
-
 	var cfg EventConfig
 	for _, opt := range opts {
 		opt(&cfg)
@@ -386,29 +393,31 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOptio
 	c.regMu.Lock()
 	defer c.regMu.Unlock()
 
-	if cfg.goType != nil {
-		if bound, ok := c.eventGoTypes.Load(etype); ok && bound.(reflect.Type) != cfg.goType {
-			return EEventTypeMismatch
-		}
+	cur := *c.events.Load()
+	reg := cur[etype]
+
+	if cfg.goType != nil && reg.goType != nil && reg.goType != cfg.goType {
+		return EEventTypeMismatch
 	}
 
-	var sl []EventBus
-	if asl, ok := c.eventTypes.Load(etype); ok {
-		sl = asl.([]EventBus)
-		if inSlice(btype, sl) {
-			return EEventRegistrationExists
-		}
+	if slices.Contains(reg.buses, btype) {
+		return EEventRegistrationExists
 	}
 
-	// Never append in place: Publish may be iterating the published slice.
-	c.eventTypes.Store(etype, append(slices.Clone(sl), btype))
+	// Never mutate the published snapshot: Publish may be reading it.
+	reg.buses = append(slices.Clone(reg.buses), btype)
 	if cfg.Name != "" {
-		c.eventNames.Store(etype, cfg.Name)
+		reg.name = cfg.Name
 	}
 	if cfg.goType != nil {
-		c.eventGoTypes.Store(etype, cfg.goType)
+		reg.goType = cfg.goType
 	}
-	c.logger.Debug("registering event type", "event-type", etype, "event-name", c.eventName(etype), "bus-type", btype)
+
+	next := maps.Clone(cur)
+	next[etype] = reg
+	c.events.Store(&next)
+
+	c.logger.Debug("registering event type", "event-type", etype, "event-name", reg.name, "bus-type", btype)
 
 	return nil
 }
@@ -473,10 +482,17 @@ func (c *CQRS) subscribersFor(btype EventBus, etype EventType) []*Subscription {
 	return (*c.subscriptions.Load())[subscriptionKey{btype: btype, etype: etype}]
 }
 
+// registration returns the current registration of etype, if any. The value
+// is an immutable snapshot: safe to read without a lock.
+func (c *CQRS) registration(etype EventType) (eventRegistration, bool) {
+	reg, ok := (*c.events.Load())[etype]
+	return reg, ok
+}
+
 // checkGoType returns EEventTypeMismatch when etype is bound with OfType to a
 // Go type other than got. An unbound etype accepts anything.
 func (c *CQRS) checkGoType(etype EventType, got reflect.Type) error {
-	if bound, ok := c.eventGoTypes.Load(etype); ok && bound.(reflect.Type) != got {
+	if reg, ok := c.registration(etype); ok && reg.goType != nil && reg.goType != got {
 		return EEventTypeMismatch
 	}
 	return nil
@@ -484,10 +500,8 @@ func (c *CQRS) checkGoType(etype EventType, got reflect.Type) error {
 
 // eventName returns the label given with WithEventName, or "" if none.
 func (c *CQRS) eventName(etype EventType) string {
-	if n, ok := c.eventNames.Load(etype); ok {
-		return n.(string)
-	}
-	return ""
+	reg, _ := c.registration(etype)
+	return reg.name
 }
 
 // checkEventOnBus verifies that btype is a registered bus and that etype has
@@ -497,12 +511,12 @@ func (c *CQRS) checkEventOnBus(btype EventBus, etype EventType) error {
 		return EEventBusDoesntExists
 	}
 
-	buses, ok := c.eventTypes.Load(etype)
+	reg, ok := c.registration(etype)
 	if !ok {
 		return EEventTypeDoesntExists
 	}
 
-	if !inSlice(btype, buses.([]EventBus)) {
+	if !slices.Contains(reg.buses, btype) {
 		return EEventNotRegisteredOnBus
 	}
 
@@ -620,16 +634,15 @@ func (c *CQRS) unsubscribe(sub *Subscription) error {
 	return nil
 }
 
+// GetBusTypeFromEventType returns the buses etype is registered on. The slice
+// is an immutable snapshot and must not be modified.
 func (c *CQRS) GetBusTypeFromEventType(etype EventType) ([]EventBus, error) {
-	if ereg, ok := c.eventTypes.Load(etype); ok {
-		if er, ok := ereg.([]EventBus); ok {
-			return er, nil
-		} else {
-			return nil, EEventRegistrationDoesntExists
-		}
+	reg, ok := c.registration(etype)
+	if !ok {
+		return nil, EEventTypeInvalid
 	}
 
-	return nil, EEventTypeInvalid
+	return reg.buses, nil
 }
 
 func (c *CQRS) GetBusTypeFromEvent(ev Event) ([]EventBus, error) {
@@ -650,14 +663,17 @@ func (c *CQRS) Publish(ctx context.Context, ev Event) error {
 		return err
 	}
 
-	if err := c.checkGoType(ev.GetType(), reflect.TypeOf(ev)); err != nil {
-		return err
+	// One registry load serves both the Go type check and the bus list.
+	reg, ok := c.registration(ev.GetType())
+	if !ok {
+		return EEventTypeInvalid
 	}
 
-	buslist, err := c.GetBusTypeFromEvent(ev)
-	if err != nil {
-		return err
+	if reg.goType != nil && reg.goType != reflect.TypeOf(ev) {
+		return EEventTypeMismatch
 	}
+
+	buslist := reg.buses
 
 	// Deliver to every bus even if some fail, then report all failures. The
 	// caller can still match individual causes with errors.Is.
