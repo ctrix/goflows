@@ -2,12 +2,12 @@
 // around the CQRS / event-driven pattern.
 //
 // The engine ([CQRS]) routes typed events ([Event]) over named buses
-// ([EventBus]) through a pluggable transport ([EventHandlerInterface]).
-// An in-memory transport ([InMemoryEventHandler]) is provided out of the box.
+// ([EventBus]) through a pluggable transport ([Transport]).
+// An in-memory transport ([InMemoryTransport]) is provided out of the box.
 //
 // Typical usage:
 //
-//	cq, err := goflows.NewCQRSEngine(new(goflows.InMemoryEventHandler))
+//	cq, err := goflows.NewCQRSEngine(new(goflows.InMemoryTransport))
 //	// handle err
 //
 //	// The library is silent by default. Pass a logger to see what it does:

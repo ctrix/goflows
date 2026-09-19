@@ -41,7 +41,7 @@ func buildScopedEngine(t *testing.T) *CQRS {
 	t.Helper()
 	require := require.New(t)
 
-	eh := new(InMemoryEventHandler)
+	eh := new(InMemoryTransport)
 
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)

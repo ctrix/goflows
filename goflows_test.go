@@ -45,7 +45,7 @@ func TestBasic(t *testing.T) {
 	require := require.New(t)
 
 	// **************************************
-	eh := new(InMemoryEventHandler)
+	eh := new(InMemoryTransport)
 
 	// **************************************
 	cq, err := NewCQRSEngine(eh)
@@ -156,7 +156,7 @@ func TestRequest(t *testing.T) {
 	require := require.New(t)
 
 	// **************************************
-	eh := new(InMemoryEventHandler)
+	eh := new(InMemoryTransport)
 
 	// **************************************
 	cq, err := NewCQRSEngine(eh)
@@ -226,7 +226,7 @@ func TestMultipleBusForSameEvent(t *testing.T) {
 	require := require.New(t)
 
 	// **************************************
-	eh := new(InMemoryEventHandler)
+	eh := new(InMemoryTransport)
 
 	// **************************************
 	cq, err := NewCQRSEngine(eh)

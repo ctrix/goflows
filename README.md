@@ -4,7 +4,7 @@ A lightweight event bus for Go with typed events, pluggable transports and
 request/response messaging, built for CQRS-style applications.
 
 - Typed events routed over named buses
-- Pluggable transport (`EventHandlerInterface`), with an in-memory
+- Pluggable transport (`Transport`), with an in-memory
   implementation included
 - Subscribe returns a handle; `Unsubscribe` on it removes exactly that subscription
 - `Request` for request/response style flows, bounded by a context
@@ -45,7 +45,7 @@ type UserCreated struct {
 
 func main() {
 	cq, err := goflows.NewCQRSEngine(
-		new(goflows.InMemoryEventHandler),
+		new(goflows.InMemoryTransport),
 		goflows.WithLogger(slog.Default()),
 	)
 	if err != nil {
@@ -87,8 +87,8 @@ func main() {
 | `EventType` | Identifier of an event type. Bound to a bus with `RegisterEvent`. |
 | `Event` / `BaseEvent` | Event contract and the base struct to embed in your own events, built with `NewBaseEvent`. |
 | `Subscription` | Handle returned by `Subscribe`, with `Unsubscribe`, `Bus` and `Type`. |
-| `EventHandlerInterface` | Transport abstraction. Implement it to back the engine with another broker. |
-| `InMemoryEventHandler` | Built-in channel-based transport, suitable for single-process use. |
+| `Transport` | Transport abstraction: `Open`, `Has`, `Stream`, `Publish`, `Close`. Implement it to back the engine with a broker; add `SetLogger` to receive the engine logger. |
+| `InMemoryTransport` | Built-in channel-based transport, suitable for single-process use. |
 | `BusOption` | Functional options for `RegisterBus`: `WithBusName`, `WithPartitions`, `WithBufferSize`. |
 | `EventOption` | Functional options for `RegisterEvent`: `WithEventName`. |
 | `EngineOption` | Functional options for `NewCQRSEngine`: `WithLogger`. |

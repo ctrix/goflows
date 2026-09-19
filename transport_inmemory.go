@@ -7,7 +7,8 @@ import (
 	"sync/atomic"
 )
 
-const INMEMORY_HANDLER_NAME = "InMemoryEventHandler"
+// InMemoryTransportName is what InMemoryTransport.Name returns.
+const InMemoryTransportName = "inmemory"
 
 // inMemoryBus is a bounded queue of events. The channel is never closed:
 // publishers select on it together with done and the caller context, so a
@@ -53,34 +54,35 @@ func (b *inMemoryBus) close() {
 	}
 }
 
-// InMemoryEventHandler is a channel based transport for a single process.
-// The zero value is ready to use; the engine hands it its logger.
-type InMemoryEventHandler struct {
+// InMemoryTransport is a channel based [Transport] for a single process. The
+// zero value is ready to use; it implements [LoggerSetter] so the engine hands
+// it its logger.
+type InMemoryTransport struct {
 	logger atomic.Pointer[slog.Logger]
 	inputs sync.Map
 }
 
-func (eh *InMemoryEventHandler) Name() string {
-	return INMEMORY_HANDLER_NAME
+func (eh *InMemoryTransport) Name() string {
+	return InMemoryTransportName
 }
 
 // SetLogger sets the logger; nil is ignored.
-func (eh *InMemoryEventHandler) SetLogger(l *slog.Logger) {
+func (eh *InMemoryTransport) SetLogger(l *slog.Logger) {
 	if l != nil {
-		eh.logger.Store(l.With("handler", INMEMORY_HANDLER_NAME))
+		eh.logger.Store(l.With("transport", InMemoryTransportName))
 	}
 }
 
 // log returns the current logger, or a silent one if none was set.
-func (eh *InMemoryEventHandler) log() *slog.Logger {
+func (eh *InMemoryTransport) log() *slog.Logger {
 	if l := eh.logger.Load(); l != nil {
 		return l
 	}
 	return slog.New(slog.DiscardHandler)
 }
 
-func (eh *InMemoryEventHandler) RegisterBus(btype EventBus, cfg BusConfig) error {
-	if eh.BusExists(btype) {
+func (eh *InMemoryTransport) Open(btype EventBus, cfg BusConfig) error {
+	if eh.Has(btype) {
 		return EEventBusExists
 	}
 
@@ -99,14 +101,14 @@ func (eh *InMemoryEventHandler) RegisterBus(btype EventBus, cfg BusConfig) error
 	return nil
 }
 
-func (eh *InMemoryEventHandler) BusExists(btype EventBus) bool {
+func (eh *InMemoryTransport) Has(btype EventBus) bool {
 	_, ok := eh.inputs.Load(btype)
 	return ok
 }
 
-// Range returns the channel events for btype are delivered on. The channel is
-// never closed; the engine stops reading from it after Stop.
-func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan Event, bool) {
+// Stream returns the channel events for btype are delivered on. The channel
+// is never closed; the engine stops reading from it after Close.
+func (eh *InMemoryTransport) Stream(btype EventBus) (<-chan Event, bool) {
 	abus, ok := eh.inputs.Load(btype)
 	if !ok {
 		return nil, ok
@@ -116,7 +118,7 @@ func (eh *InMemoryEventHandler) Range(btype EventBus) (<-chan Event, bool) {
 	return bus.ch, ok
 }
 
-func (eh *InMemoryEventHandler) Publish(ctx context.Context, btype EventBus, ev Event) error {
+func (eh *InMemoryTransport) Publish(ctx context.Context, btype EventBus, ev Event) error {
 	abus, ok := eh.inputs.Load(btype)
 	if !ok {
 		return EEventBusDoesntExists
@@ -125,13 +127,15 @@ func (eh *InMemoryEventHandler) Publish(ctx context.Context, btype EventBus, ev 
 	return abus.(*inMemoryBus).publish(ctx, ev)
 }
 
-// Stop marks every bus closed and releases publishers blocked on a full
+// Close marks every bus closed and releases publishers blocked on a full
 // queue. Events already queued stay in the channel for the engine to drain.
-func (eh *InMemoryEventHandler) Stop() {
-	eh.log().Debug("stopping event handler")
+func (eh *InMemoryTransport) Close() error {
+	eh.log().Debug("closing transport")
 
 	eh.inputs.Range(func(k, v interface{}) bool {
 		v.(*inMemoryBus).close()
 		return true
 	})
+
+	return nil
 }

@@ -10,18 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// failingBusHandler wraps the in-memory transport and fails Publish on one bus.
-type failingBusHandler struct {
-	EventHandlerInterface
+// failingBusTransport wraps the in-memory transport and fails Publish on one bus.
+type failingBusTransport struct {
+	Transport
 	failOn EventBus
 	err    error
 }
 
-func (f *failingBusHandler) Publish(ctx context.Context, btype EventBus, ev Event) error {
+func (f *failingBusTransport) Publish(ctx context.Context, btype EventBus, ev Event) error {
 	if btype == f.failOn {
 		return f.err
 	}
-	return f.EventHandlerInterface.Publish(ctx, btype, ev)
+	return f.Transport.Publish(ctx, btype, ev)
 }
 
 // When an event is registered on several buses and one of them fails, the
@@ -30,9 +30,8 @@ func TestPublishDeliversToAllBusesAndReportsFailures(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	inner := new(InMemoryEventHandler)
 	boom := errors.New("high bus is down")
-	eh := &failingBusHandler{EventHandlerInterface: inner, failOn: scopeBusHigh, err: boom}
+	eh := &failingBusTransport{Transport: new(InMemoryTransport), failOn: scopeBusHigh, err: boom}
 
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
@@ -63,7 +62,7 @@ func TestRegisterEventConcurrentSameType(t *testing.T) {
 
 	const buses = 16
 	for round := 0; round < 20; round++ {
-		eh := new(InMemoryEventHandler)
+		eh := new(InMemoryTransport)
 		cq, err := NewCQRSEngine(eh)
 		require.NoError(err)
 

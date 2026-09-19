@@ -47,7 +47,7 @@ func TestPublishUntypedEventFails(t *testing.T) {
 
 	const firstIota EventType = 1 // what `iota + 1` gives to the first user constant
 
-	cq, err := NewCQRSEngine(new(InMemoryEventHandler))
+	cq, err := NewCQRSEngine(new(InMemoryTransport))
 	require.NoError(err)
 	require.NoError(cq.RegisterBus(scopeBusHigh))
 	require.NoError(cq.RegisterEvent(scopeBusHigh, firstIota))

@@ -7,7 +7,7 @@ import (
 
 func benchEngine(b *testing.B) *CQRS {
 	b.Helper()
-	eh := new(InMemoryEventHandler)
+	eh := new(InMemoryTransport)
 	cq, err := NewCQRSEngine(eh)
 	if err != nil {
 		b.Fatal(err)

@@ -16,7 +16,7 @@ func buildEngineWithBus(t *testing.T, opts ...BusOption) *CQRS {
 	t.Helper()
 	require := require.New(t)
 
-	eh := new(InMemoryEventHandler)
+	eh := new(InMemoryTransport)
 
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
@@ -119,14 +119,14 @@ func TestPartitionsOptionValidation(t *testing.T) {
 	t.Parallel()
 	require := require.New(t)
 
-	eh := new(InMemoryEventHandler)
+	eh := new(InMemoryTransport)
 	cq, err := NewCQRSEngine(eh)
 	require.NoError(err)
 
 	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(0)), EOptionInvalid)
 	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithPartitions(-3)), EOptionInvalid)
 	require.ErrorIs(cq.RegisterBus(scopeBusHigh, WithBufferSize(0)), EOptionInvalid)
-	require.False(cq.handler.BusExists(scopeBusHigh), "a rejected bus must not be created")
+	require.False(cq.transport.Has(scopeBusHigh), "a rejected bus must not be created")
 	require.NoError(cq.Stop())
 }
 

@@ -171,7 +171,7 @@ func (s *Subscription) Unsubscribe() error {
 type CQRS struct {
 	logger *slog.Logger
 
-	handler EventHandlerInterface
+	transport Transport
 
 	// regMu serialises RegisterEvent writers. Readers use eventTypes directly;
 	// the slices stored in it are never mutated once published.
@@ -208,8 +208,9 @@ func WithLogger(l *slog.Logger) EngineOption {
 	}
 }
 
-// NewCQRSEngine builds an engine on top of the given transport.
-func NewCQRSEngine(eventh EventHandlerInterface, opts ...EngineOption) (*CQRS, error) {
+// NewCQRSEngine builds an engine on top of the given transport. If the
+// transport implements [LoggerSetter] it receives the engine logger.
+func NewCQRSEngine(eventh Transport, opts ...EngineOption) (*CQRS, error) {
 	if eventh == nil {
 		return nil, EEventHandlerInvalid
 	}
@@ -220,13 +221,15 @@ func NewCQRSEngine(eventh EventHandlerInterface, opts ...EngineOption) (*CQRS, e
 	}
 
 	c := &CQRS{
-		logger:  cfg.logger.With("library", LIBRARY_NAME),
-		handler: eventh,
-		stopCh:  make(chan struct{}),
+		logger:    cfg.logger.With("library", LIBRARY_NAME),
+		transport: eventh,
+		stopCh:    make(chan struct{}),
 	}
 	c.subscriptions.Store(&subscriptionMap{})
 
-	eventh.SetLogger(cfg.logger)
+	if ls, ok := eventh.(LoggerSetter); ok {
+		ls.SetLogger(cfg.logger)
+	}
 
 	return c, nil
 }
@@ -241,7 +244,7 @@ func (c *CQRS) checkNotStopped() error {
 }
 
 func (c *CQRS) busDispatcherRun(btype EventBus, cfg BusConfig) error {
-	ch, ok := c.handler.Range(btype)
+	ch, ok := c.transport.Stream(btype)
 	if !ok {
 		return EEventBusDoesntExists
 	}
@@ -325,7 +328,7 @@ func (c *CQRS) RegisterBus(btype EventBus, opts ...BusOption) error {
 		return EEventBusInvalid
 	}
 
-	if c.handler == nil {
+	if c.transport == nil {
 		return EEventHandlerNull
 	}
 
@@ -334,7 +337,7 @@ func (c *CQRS) RegisterBus(btype EventBus, opts ...BusOption) error {
 		return err
 	}
 
-	if err := c.handler.RegisterBus(btype, cfg); err != nil {
+	if err := c.transport.Open(btype, cfg); err != nil {
 		return err
 	}
 
@@ -352,7 +355,7 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOptio
 		return EEventTypeInvalid
 	}
 
-	if !c.handler.BusExists(btype) {
+	if !c.transport.Has(btype) {
 		return EEventBusDoesntExists
 	}
 
@@ -387,7 +390,7 @@ func (c *CQRS) RegisterEvent(btype EventBus, etype EventType, opts ...EventOptio
 }
 
 func (c *CQRS) Start() error {
-	if c.handler == nil {
+	if c.transport == nil {
 		return EEventHandlerNull
 	}
 
@@ -405,17 +408,18 @@ func (c *CQRS) Start() error {
 	return nil
 }
 
-// Stop shuts the transport down and waits for every bus dispatcher to drain
-// the events already published. It can be called in any state and is
-// idempotent: the second and later calls return nil without doing anything.
+// Stop closes the transport and waits for every bus dispatcher to drain the
+// events already published. It can be called in any state and is idempotent:
+// the second and later calls return nil without doing anything. An error from
+// the transport Close is returned after the drain.
 func (c *CQRS) Stop() error {
 	if engineState(c.state.Swap(int32(engineStopped))) == engineStopped {
 		return nil
 	}
 
-	// Stop the transport first: publishers still in flight are released with
+	// Close the transport first: publishers still in flight are released with
 	// an error. Then tell the dispatchers to drain and exit.
-	c.handler.Stop()
+	closeErr := c.transport.Close()
 	close(c.stopCh)
 
 	c.subDispatchers.Range(func(k, v interface{}) bool {
@@ -426,7 +430,7 @@ func (c *CQRS) Stop() error {
 
 	c.logger.Debug("CQRS engine stopped")
 
-	return nil
+	return closeErr
 }
 
 // This function is used only in tests
@@ -456,7 +460,7 @@ func (c *CQRS) eventName(etype EventType) string {
 // checkEventOnBus verifies that btype is a registered bus and that etype has
 // been registered on that specific bus.
 func (c *CQRS) checkEventOnBus(btype EventBus, etype EventType) error {
-	if btype == EventBusInvalid || !c.handler.BusExists(btype) {
+	if btype == EventBusInvalid || !c.transport.Has(btype) {
 		return EEventBusDoesntExists
 	}
 
@@ -580,7 +584,7 @@ func (c *CQRS) Publish(ctx context.Context, ev Event) error {
 	// caller can still match individual causes with errors.Is.
 	var errs []error
 	for _, bus := range buslist {
-		if err := c.handler.Publish(ctx, bus, ev); err != nil {
+		if err := c.transport.Publish(ctx, bus, ev); err != nil {
 			errs = append(errs, fmt.Errorf("bus %d: %w", bus, err))
 		}
 	}
